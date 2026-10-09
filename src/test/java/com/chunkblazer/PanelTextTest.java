@@ -13,7 +13,7 @@ public class PanelTextTest
 	@Test
 	public void resourceMatchesOriginalLiterals()
 	{
-		assertEquals("Please click the Pts orb for the new Task Overlay!", ChunkBlazerPanel.t("pts"));
+		assertEquals("Click a task to track it, right-click to star it, click a heading to fold it.", ChunkBlazerPanel.t("taskHint"));
 		assertEquals("Every task you've completed, newest first, on chunkblazer.com", ChunkBlazerPanel.t("historyTip"));
 		assertEquals("Reveal your account sync key to move this account to another computer", ChunkBlazerPanel.t("keyTip"));
 		assertEquals("Wipe this account's local ChunkBlazer data and restore it fresh from the server. "

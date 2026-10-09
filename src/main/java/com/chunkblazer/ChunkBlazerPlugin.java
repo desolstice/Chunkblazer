@@ -280,6 +280,7 @@ public class ChunkBlazerPlugin extends Plugin
 	// behind it (e.g. the Rellekka islands) unreachable without routing around.
 	private final Map<Integer, List<Integer>> freeUnlockableNeighbors = new HashMap<>();
 	private final Map<String, NuzlockeTask> completedTaskCache = new HashMap<>(); // Cache completed tasks for lookup
+	@Getter
 	private ChunkBlazerPanel panel;
 	private NavigationButton navButton;
 	private volatile int lastRegionId = -1;

@@ -41,6 +41,7 @@ import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.ButtonGroup;
 import javax.swing.ImageIcon;
+import javax.swing.JComponent;
 import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -166,7 +167,7 @@ public class ChunkBlazerPanel extends PluginPanel
 		overlayHint.setBorder(BorderFactory.createCompoundBorder(
 			BorderFactory.createLineBorder(FLAME),
 			new EmptyBorder(5, 6, 5, 6)));
-		overlayHint.add(new WrappingTextLabel(t("pts"),
+		overlayHint.add(new WrappingTextLabel(t("taskHint"),
 			FontManager.getRunescapeSmallFont(), FLAME, CONTENT_WIDTH - 16));
 		overlayHint.setVisible(false);
 		mainPanel.add(overlayHint);
@@ -757,6 +758,17 @@ public class ChunkBlazerPanel extends PluginPanel
 		});
 	}
 
+
+	/** The task list (from TaskBrowserOverlay), shown under the hint once a mode is picked. */
+	public void addTaskList(JComponent list)
+	{
+		SwingUtilities.invokeLater(() ->
+		{
+			list.setAlignmentX(LEFT_ALIGNMENT);
+			overlayHint.add(list);
+			revalidate();
+		});
+	}
 
 	public void updateModeDisplay()
 	{

@@ -59,9 +59,16 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import javax.swing.BorderFactory;
+import javax.swing.DefaultListModel;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.SwingUtilities;
+import javax.swing.border.EmptyBorder;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
+import net.runelite.api.MenuAction;
 import net.runelite.api.Skill;
 import net.runelite.api.events.FocusChanged;
 import net.runelite.api.events.GameStateChanged;
@@ -80,6 +87,8 @@ import net.runelite.client.input.MouseAdapter;
 import net.runelite.client.input.MouseManager;
 import net.runelite.client.input.MouseWheelListener;
 import net.runelite.client.ui.FontManager;
+import net.runelite.client.ui.components.FlatTextField;
+import net.runelite.client.ui.components.IconTextField;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayManager;
@@ -534,10 +543,19 @@ public class TaskBrowserOverlay extends Overlay
 		taskButton = bounds;
 	}
 
-	/** Tasks key + click on an unlocked chunk on the world map: show that chunk's tasks. */
+	/**
+	 * Tasks key + click on an unlocked chunk on the world map: show that chunk's tasks.
+	 * Any other click out in the game world (walk, attack, chop...) closes the window,
+	 * like the game's own interfaces do. Clicks on interfaces, like the orb, don't.
+	 */
 	@Subscribe
 	public void onMenuOptionClicked(MenuOptionClicked event)
 	{
+		if (open && !tasksKeyHeld && event.getMenuAction() != MenuAction.CANCEL
+			&& event.getMenuEntry().getWidget() == null)
+		{
+			close();
+		}
 		if (!tasksKeyHeld || client.getWidget(InterfaceID.Worldmap.MAP_CONTAINER) == null)
 		{
 			return;
@@ -591,6 +609,7 @@ public class TaskBrowserOverlay extends Overlay
 		{
 			quests.refreshStates(QUEST_CHECKS_PER_TICK);
 		}
+		updateSideList();
 		Set<String> active = new LinkedHashSet<>();
 		for (NuzlockeTask task : pool(false))
 		{
@@ -624,6 +643,195 @@ public class TaskBrowserOverlay extends Overlay
 			newIds.clear();
 			quests.reset();
 		}
+	}
+
+	// --- Side panel list --------------------------------------------------------
+
+	// The side panel's task list, in sections like the old panel had: tracked, saved, this
+	// chunk, all active, then global (quests, level-ups). Click a header to fold it.
+	private static final int SIDE_MAX = 25;
+	private final DefaultListModel<Object> sideModel = new DefaultListModel<>();
+	private final JList<Object> sideList = new JList<>(sideModel);
+	private final Set<String> sideFolded = ConcurrentHashMap.newKeySet();
+	private String sideKey = "";
+	private boolean sideAdded;
+	private final IconTextField sideSearch = new IconTextField();
+
+	/** Once a tick: add the list to the side panel, and refresh it while it's on screen. */
+	private void updateSideList()
+	{
+		ChunkBlazerPanel panel = plugin.getPanel();
+		if (!sideAdded && panel != null)
+		{
+			sideAdded = true;
+			sideFolded.addAll(Arrays.asList("All active", "Global"));
+			sideList.setCellRenderer((list, item, index, selected, focus) -> sideRow(item));
+			sideList.addMouseListener(new java.awt.event.MouseAdapter()
+			{
+				// On press, not click: a click is lost if the mouse moves at all in between.
+				@Override
+				public void mousePressed(MouseEvent e)
+				{
+					int i = sideList.locationToIndex(e.getPoint());
+					Object item = i < 0 ? null : sideModel.get(i);
+					if (item instanceof String)
+					{
+						String section = ((String) item).replaceAll(" \\(.*", "");
+						if (!sideFolded.remove(section))
+						{
+							sideFolded.add(section);
+						}
+						sideKey = "";
+					}
+					else if (item instanceof NuzlockeTask && SwingUtilities.isRightMouseButton(e))
+					{
+						toggleSaved(((NuzlockeTask) item).getTaskId());
+						sideKey = "";
+					}
+					else if (item instanceof NuzlockeTask)
+					{
+						plugin.selectTaskFromGame((NuzlockeTask) item);
+						sideKey = "";
+					}
+					// Redraw now rather than on the next game tick (up to 0.6s away).
+					clientThread.invoke(TaskBrowserOverlay.this::updateSideList);
+				}
+			});
+			// Search: filters every section and opens them all while there's text.
+			sideSearch.setIcon(IconTextField.Icon.SEARCH);
+			sideSearch.setBackground(new Color(62, 62, 62));
+			sideSearch.setHoverBackgroundColor(new Color(75, 75, 75));
+			for (java.awt.Component c : sideSearch.getComponents())
+			{
+				if (c instanceof FlatTextField)
+				{
+					// IconTextField has no text colour setter, so set it on the field inside.
+					((FlatTextField) c).getTextField().setForeground(Color.WHITE);
+					((FlatTextField) c).getTextField().setCaretColor(Color.WHITE);
+				}
+			}
+			sideList.setBackground(new Color(30, 30, 30));
+			sideSearch.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+			Runnable research = () ->
+			{
+				sideKey = "";
+				clientThread.invoke(this::updateSideList);
+			};
+			sideSearch.addClearListener(research);
+			sideSearch.addKeyListener(new java.awt.event.KeyAdapter()
+			{
+				@Override
+				public void keyReleased(KeyEvent e)
+				{
+					research.run();
+				}
+			});
+			panel.addTaskList(sideSearch);
+			panel.addTaskList(sideList);
+		}
+		if (!sideList.isShowing())
+		{
+			return;
+		}
+		Set<String> saved = savedIds();
+		Set<String> archived = archive.ids();
+		String here = currentChunkName();
+		List<NuzlockeTask> chunk = new ArrayList<>();
+		List<NuzlockeTask> globals = new ArrayList<>();
+		String query = sideSearch.getText().trim().toLowerCase();
+		for (NuzlockeTask task : pool(true))
+		{
+			chunkNames.computeIfAbsent(task.getTaskId(), k -> chunkName(task));
+			if (!archived.contains(task.getTaskId()) && (query.isEmpty() || matchesSearch(task, query)))
+			{
+				(plugin.isGlobalTask(task.getTaskId()) ? globals : chunk).add(task);
+			}
+		}
+		chunk.sort(sorter());
+		globals.sort(sorter());
+		NuzlockeTask tracked = plugin.getSelectedTask();
+		List<Object> items = new ArrayList<>();
+		addSection(items, "Tracked", tracked == null ? Collections.emptyList() : Collections.singletonList(tracked));
+		List<NuzlockeTask> savedTasks = new ArrayList<>(chunk);
+		savedTasks.addAll(globals);
+		savedTasks.removeIf(t -> !saved.contains(t.getTaskId()));
+		addSection(items, "Saved", savedTasks);
+		List<NuzlockeTask> inChunk = new ArrayList<>(chunk);
+		inChunk.removeIf(t -> !here.equals(chunkNames.get(t.getTaskId())));
+		addSection(items, "This chunk", inChunk);
+		addSection(items, "All active", chunk);
+		addSection(items, "Global", globals);
+
+		// Only rebuild when something changed, so the panel doesn't jump while scrolling.
+		StringBuilder key = new StringBuilder(query + saved);
+		items.forEach(o -> key.append(o instanceof NuzlockeTask ? ((NuzlockeTask) o).getTaskId() : o));
+		if (key.toString().equals(sideKey))
+		{
+			return;
+		}
+		sideKey = key.toString();
+		SwingUtilities.invokeLater(() ->
+		{
+			sideModel.clear();
+			items.forEach(sideModel::addElement);
+			// The panel only grows to fit if it's told the list changed size.
+			panel.revalidate();
+			panel.repaint();
+		});
+	}
+
+	/** A header with its count, then (unless folded) up to SIDE_MAX tasks and a "+N more" line. */
+	private void addSection(List<Object> items, String title, List<NuzlockeTask> tasks)
+	{
+		items.add(title + " (" + tasks.size() + ")");
+		if (sideFolded.contains(title) && sideSearch.getText().trim().isEmpty())
+		{
+			return;
+		}
+		items.addAll(tasks.subList(0, Math.min(SIDE_MAX, tasks.size())));
+		if (tasks.size() > SIDE_MAX || tasks.isEmpty())
+		{
+			items.add(tasks.size() - SIDE_MAX);
+		}
+	}
+
+	/** A section header, a "+N more" line, or a task card (orange and warmer if tracked). */
+	private JLabel sideRow(Object item)
+	{
+		if (item instanceof Integer)
+		{
+			int extra = (Integer) item;
+			JLabel more = new JLabel(extra > 0 ? "+" + extra + " more in the task window" : "Nothing here");
+			more.setForeground(Color.GRAY);
+			more.setBorder(new EmptyBorder(4, 8, 6, 4));
+			return more;
+		}
+		if (item instanceof String)
+		{
+			String title = (String) item;
+			boolean folded = sideFolded.contains(title.replaceAll(" \\(.*", "")) && sideSearch.getText().trim().isEmpty();
+			JLabel header = new JLabel((folded ? "\u25B6 " : "\u25BC ") + title);
+			header.setFont(FontManager.getRunescapeBoldFont());
+			header.setForeground(new Color(255, 200, 80));
+			header.setBorder(new EmptyBorder(8, 2, 4, 2));
+			return header;
+		}
+		NuzlockeTask task = (NuzlockeTask) item;
+		NuzlockeTask tracked = plugin.getSelectedTask();
+		boolean isTracked = tracked != null && task.getTaskId().equals(tracked.getTaskId());
+		String chunk = chunkNames.getOrDefault(task.getTaskId(), "");
+		JLabel label = new JLabel("<html><body style='width:160px'>"
+			+ (savedIds().contains(task.getTaskId()) ? "<font color='#ffc832'>&#9733;</font> " : "")
+			+ "<font color='" + (isTracked ? "#ff9933" : "#e6e6e6") + "'>"
+			+ (task.getName() == null ? task.getTaskId() : task.getName()) + "</font><br>"
+			+ "<font color='#8c8c8c'>" + (chunk.isEmpty() ? "" : chunk + " &middot; ") + task.getBasePoints()
+			+ " pts</font></body></html>");
+		label.setFont(FontManager.getRunescapeSmallFont());
+		label.setOpaque(true);
+		label.setBackground(isTracked ? new Color(60, 46, 32) : new Color(40, 40, 40));
+		label.setBorder(BorderFactory.createCompoundBorder(
+			BorderFactory.createMatteBorder(0, 0, 2, 0, new Color(30, 30, 30)), new EmptyBorder(5, 8, 5, 6)));
+		return label;
 	}
 
 	/** A comma-separated id set stored per account, or null if never stored. */
@@ -927,8 +1135,10 @@ public class TaskBrowserOverlay extends Overlay
 		Set<Filter> on = filterOn;
 		Predicate<NuzlockeTask> test = filterTest();
 		String here = pinnedChunk != null ? pinnedChunk : currentChunkOnly ? currentChunkName() : null;
+		// Global tasks (quests, level-ups) join the Active list when asked for, or when searching.
 		boolean global = tab == Tab.SAVED || tab == Tab.ARCHIVED || (tab == Tab.ACTIVE && (filterSkill != null
-			|| on.contains(Filter.QUESTS) || on.contains(Filter.PROGRESSION) || on.contains(Filter.OFFLINE)));
+			|| !query.isEmpty() || on.contains(Filter.QUESTS) || on.contains(Filter.PROGRESSION)
+			|| on.contains(Filter.OFFLINE)));
 
 		List<NuzlockeTask> list = new ArrayList<>();
 		for (NuzlockeTask task : pool(global))

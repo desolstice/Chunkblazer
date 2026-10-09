@@ -26,23 +26,45 @@
 
 package com.chunkblazer;
 
-import static com.chunkblazer.Strings.t;
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.util.Properties;
 
-@Getter
-@RequiredArgsConstructor
-public enum GameMode
+/**
+ * Longer text (chat, panel, overlay and log messages) lives in strings.properties,
+ * read once as UTF-8, to keep the Java source under the Plugin Hub's token cap.
+ */
+public final class Strings
 {
-	CASUAL("Casual", t("ui.modeCasual")),
-	NUZLOCKE("Competitive", t("ui.modeCompetitive"));
+	private static final Properties TEXT = new Properties();
 
-	private final String name;
-	private final String description;
-
-	@Override
-	public String toString()
+	static
 	{
-		return name;
+		try (Reader reader = new InputStreamReader(Strings.class.getResourceAsStream("strings.properties"),
+			StandardCharsets.UTF_8))
+		{
+			TEXT.load(reader);
+		}
+		catch (IOException e)
+		{
+			throw new ExceptionInInitializerError(e);
+		}
+	}
+
+	private Strings()
+	{
+	}
+
+	/**
+	 * The text for a key, with any %s placeholders filled from args (String.format).
+	 * Without args the text is returned as stored, so a literal % needs no escaping.
+	 * Log templates keep SLF4J's {} placeholders and are passed to the logger as is.
+	 */
+	public static String t(String key, Object... args)
+	{
+		String text = TEXT.getProperty(key, key);
+		return args.length == 0 ? text : String.format(text, args);
 	}
 }

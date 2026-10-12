@@ -105,7 +105,7 @@ class ChunkBlazerWorldMapOverlay extends Overlay
 
 	/**
 	 * @return the region id under the cursor on the world map, or -1 if none.
-	 * Read by {@link ChunkBlazerPlugin#onMenuOptionClicked} for keybind+click unlock.
+	 * Read by {@code ChunkBlazerPlugin.unlockFromWorldMap} for keybind+click unlock.
 	 */
 	int getHoveredRegionId()
 	{
@@ -383,7 +383,7 @@ class ChunkBlazerWorldMapOverlay extends Overlay
 		}
 
 		// Hovering an unlockable neighbour: show the keybind+click tooltip. The
-		// actual unlock is handled in ChunkBlazerPlugin.onMenuOptionClicked when
+		// actual unlock is handled in ChunkBlazerPlugin.unlockFromWorldMap when
 		// the map-unlock key is held during the click (Region Locker model) —
 		// world-map right-click menu entries don't render reliably.
 		if (isHoveredUnlockable && hoveredRegionId > 0)

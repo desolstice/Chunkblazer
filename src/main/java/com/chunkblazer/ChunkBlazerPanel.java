@@ -447,13 +447,19 @@ public class ChunkBlazerPanel extends PluginPanel
 	 */
 	private void confirmResetAccountData()
 	{
+		String blocked = plugin.resetBlockedReason(System.currentTimeMillis());
+		if (blocked != null)
+		{
+			JOptionPane.showMessageDialog(this, "<html><body style='width:270px'>" + blocked + "</body></html>",
+				"Can't reset right now", JOptionPane.WARNING_MESSAGE);
+			return;
+		}
 		int confirm = JOptionPane.showConfirmDialog(this,
-			"<html><body style='width:270px'>This clears this account's ChunkBlazer data on THIS "
-				+ "computer (mode, tasks, points, chunks, and the stored sync key) and restores it "
-				+ "fresh from the server the next time you log in. Your server progress is not "
-				+ "touched.<br><br>Use this only if this account is showing the wrong mode or another "
-				+ "account's progress. After it finishes, restart RuneLite and log back in.<br><br>"
-				+ "Continue?</body></html>",
+			"<html><body style='width:270px'>This erases this account's ChunkBlazer progress on THIS "
+				+ "computer (mode, tasks, points, chunks) and reloads it from the server the next time "
+				+ "you log in. Your server progress is not touched.<br><br>Use this only if this account "
+				+ "is showing the wrong mode or another account's progress. After it finishes, restart "
+				+ "RuneLite and log back in.<br><br>Continue?</body></html>",
 			"Reset this account's local data?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
 		if (confirm != JOptionPane.YES_OPTION)
 		{
@@ -823,6 +829,8 @@ public class ChunkBlazerPanel extends PluginPanel
 		boolean isLocked = plugin.isModeLocked();
 		modeSelectionPanel.setVisible(!isLocked);
 		overlayHint.setVisible(isLocked);
+		// Until a mode is picked the panel is only the mode picker, so no chunk either.
+		regionLabel.setVisible(isLocked);
 
 		if (isLocked)
 		{
@@ -834,7 +842,7 @@ public class ChunkBlazerPanel extends PluginPanel
 		}
 		else
 		{
-			modeLabel.setText(" | Not Set");
+			modeLabel.setText("Mode: Not Set");
 			modeLabel.setForeground(Color.YELLOW);
 		}
 

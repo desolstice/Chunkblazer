@@ -1,13 +1,18 @@
 package com.chunkblazer;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
+import net.runelite.api.Client;
+import net.runelite.api.Player;
 import net.runelite.client.config.ConfigManager;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 
 /**
  * Test harness for the RSProfile-backed per-account store (migration step 3b).
@@ -61,6 +66,36 @@ final class RsProfileTestSupport
 			return null;
 		}).when(cm).unsetRSProfileConfiguration(eq(GROUP), anyString());
 		return writes;
+	}
+
+	/**
+	 * Log the plugin in as a player who has locked Casual, so the paths gated on a
+	 * picked mode run.
+	 */
+	static void lockMode(ChunkBlazerPlugin plugin, ConfigManager cm) throws Exception
+	{
+		Player player = mock(Player.class);
+		lenient().when(player.getName()).thenReturn("Tester");
+		Client client = mock(Client.class);
+		lenient().when(client.getLocalPlayer()).thenReturn(player);
+		Field f = ChunkBlazerPlugin.class.getDeclaredField("client");
+		f.setAccessible(true);
+		f.set(plugin, client);
+
+		Method hash = ChunkBlazerPlugin.class.getDeclaredMethod("hashRsn", String.class);
+		hash.setAccessible(true);
+		lenient().when(cm.getRSProfileConfiguration(GROUP, "accountModeHash"))
+			.thenReturn(hash.invoke(plugin, "Tester") + ":CASUAL");
+	}
+
+	/**
+	 * The player chose Play offline (no server sync). Independent of {@link #lockMode}:
+	 * an account can be offline with or without a mode. Lenient like the rest of this
+	 * setup, since whether a path reads the choice is what the test is checking.
+	 */
+	static void playOffline(ConfigManager cm)
+	{
+		lenient().when(cm.getConfiguration(GROUP, "playOffline")).thenReturn("true");
 	}
 
 	// Mirror what acStr/acInt read: delegate to the typed accessor stub so an unstubbed

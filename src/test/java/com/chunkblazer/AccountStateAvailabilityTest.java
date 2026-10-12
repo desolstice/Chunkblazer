@@ -175,6 +175,42 @@ class AccountStateAvailabilityTest
 		assertNull(getField(plugin, "activeTask"));
 	}
 
+	/**
+	 * A known account that hasn't picked a mode gets nothing either, even once it has
+	 * chosen Play offline: the same early return, so no starting chunk, rolls, grants
+	 * or registrations happen before the mode picker has been answered.
+	 */
+	@Test
+	void loadActiveTasksBailsWithoutMode() throws Exception
+	{
+		when(configManager.getRSProfileKey()).thenReturn(PROFILE_KEY);
+		RsProfileTestSupport.playOffline(configManager);
+
+		List<NuzlockeTask> active = activeTasks();
+		active.add(new NuzlockeTask());
+
+		loadActiveTasks();
+
+		verify(configManager, never()).getConfiguration("chunkblazer", "charterSeedStripped");
+		verify(configManager, never()).setRSProfileConfiguration(eq("chunkblazer"), anyString(), any());
+		verify(taskModuleManager).clearTask();
+		verify(taskModuleManager, never()).registerActiveTask(any());
+		assertTrue(activeTasks().isEmpty());
+	}
+
+	/** With a mode locked the load goes ahead, so the gate above isn't simply always shut. */
+	@Test
+	void loadActiveTasksRunsWithMode() throws Exception
+	{
+		when(configManager.getRSProfileKey()).thenReturn(PROFILE_KEY);
+		RsProfileTestSupport.playOffline(configManager);
+		RsProfileTestSupport.lockMode(plugin, configManager);
+
+		loadActiveTasks();
+
+		verify(configManager).getConfiguration("chunkblazer", "charterSeedStripped");
+	}
+
 	// --- reflection helpers ------------------------------------------------
 
 	private boolean available() throws Exception

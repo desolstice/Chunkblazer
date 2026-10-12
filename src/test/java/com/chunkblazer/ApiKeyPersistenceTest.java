@@ -53,6 +53,9 @@ class ApiKeyPersistenceTest
 	@Mock
 	private ClientThread clientThread;
 
+	@Mock
+	private java.util.concurrent.ScheduledExecutorService executorService;
+
 	private ChunkBlazerPlugin plugin;
 	private Map<String, String> rsProfile;
 
@@ -66,6 +69,8 @@ class ApiKeyPersistenceTest
 		// Needed so the invalid-key branch's chat message (which posts via clientThread)
 		// does not NPE. Left unstubbed: invoke() is a no-op, the lambda never runs.
 		setField(plugin, "clientThread", clientThread);
+		// Saving a key flushes config to disk on this executor; a mock just swallows it.
+		setField(plugin, "executorService", executorService);
 		rsProfile = RsProfileTestSupport.install(configManager, config);
 	}
 
@@ -145,11 +150,9 @@ class ApiKeyPersistenceTest
 
 	// --- helpers -----------------------------------------------------------
 
-	private void persist(String key) throws Exception
+	private void persist(String key)
 	{
-		Method m = ChunkBlazerPlugin.class.getDeclaredMethod("persistApiKey", String.class);
-		m.setAccessible(true);
-		m.invoke(plugin, key);
+		plugin.persistApiKey(key, "account-a");
 	}
 
 	private void load() throws Exception

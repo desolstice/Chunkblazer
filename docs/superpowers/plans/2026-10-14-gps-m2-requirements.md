@@ -59,7 +59,7 @@ Requirement: skills Map<String,Integer>; quests Set<String>; questPoints int; co
   List<Missing> missing(PlayerState s);  Requirement merge(Requirement o);  static Requirement NONE;  boolean isUnknown()
 Missing { Kind kind; String text; }  Kind = SKILL, QUEST, QUEST_POINTS, COMBAT_LEVEL, ITEM, MAX_HIT, CHUNK, UNKNOWN
 ItemNeed { Set<Integer> anyOf; int qty; String name; }
-QuestModel { String id; String name; Requirement requirement; List<QuestStep> steps; QuestDef.Rewards rewards; boolean fromWikiData; }
+QuestModel { String id; String name; Requirement requirement; List<QuestStep> steps; QuestDef.Rewards rewards; boolean fromWikiData; List<Integer> chunks; }
 QuestCatalog: static QuestCatalog build(GpsData data, Map<String,QuestHelperEntry> helper);  Optional<QuestModel> get(String id);  Collection<QuestModel> all();
 // eligibility
 Eligibility { Status status; List<Missing> missing; }  Status = DOABLE, BLOCKED, UNKNOWN
@@ -550,7 +550,7 @@ Claude-Session: https://claude.ai/code/session_012VxiTXtLm6RdwSLxuoXrKC"
   - `MaxHitCalculator.melee(CombatStats)`: `effStr = floor(strength * prayerStrengthMultiplier) + 8 + styleBonus` where styleBonus is `3` AGGRESSIVE, `1` CONTROLLED, `0` otherwise; `effStr = floor(effStr * voidMelee)`; `base = floor(0.5 + effStr * (strengthBonus + 64) / 640.0)`; result `floor(base * gearMultiplier)`.
   - `MaxHitCalculator.ranged(CombatStats)`: `effRng = floor(ranged * prayerRangedMultiplier) + 8 + (style ACCURATE ? 3 : 0)`; `effRng = floor(effRng * voidRanged)`; `base = floor(0.5 + effRng * (rangedStrengthBonus + 64) / 640.0)`; result `floor(base * gearMultiplier)`.
   - `MaxHitCalculator.magic(CombatStats, String spell)`: `MagicSpells.baseMaxHit(spell, magicLevel)` then `floor(base * (1 + magicDamagePercent/100.0) * voidMagicDamage)`; unknown spell returns `0`.
-  - `MagicSpells.baseMaxHit(String name, int magicLevel) -> int`: standard spellbook table (case-insensitive): strikes Wind 2, Water 4, Earth 6, Fire 8; bolts 9, 10, 11, 12; blasts 13, 14, 15, 16; waves 17, 18, 19, 20; surges 21, 22, 23, 24 (names like `"fire surge"`); powered staves: `"trident of the seas"` = `floor(level/3) - 5`, `"trident of the swamp"` = `floor(level/3) - 2`, `"sanguinesti staff"` = `floor(level/3) - 1`, `"tumeken's shadow"` = `floor(level/3) + 1`... use only the first three plus shadow as `floor(level/3)+1` marked `// approximate` in a comment. Stored in a `Map<String,Integer>` for fixed spells and a small `Map<String,IntUnaryOperator>` for staves.
+  - `MagicSpells.baseMaxHit(String name, int magicLevel) -> int`: standard spellbook table (case-insensitive): strikes Wind 2, Water 4, Earth 6, Fire 8; bolts 9, 10, 11, 12; blasts 13, 14, 15, 16; waves 17, 18, 19, 20; surges 21, 22, 23, 24 (names like `"fire surge"`); powered staves: `"trident of the seas"` = `floor(level/3) - 5`, `"trident of the swamp"` = `floor(level/3) - 2`, `"sanguinesti staff"` = `floor(level/3) - 1`, `"tumeken's shadow"` = `floor(level/3) + 1` (marked `// approximate` in a comment). Stored in a `Map<String,Integer>` for fixed spells and a small `Map<String,IntUnaryOperator>` for staves.
   - `MaxHitCalculator.best(CombatStats, List<String> availableSpells) -> int` = max of melee, ranged, best magic over the given spells.
 
 - [ ] **Step 1: Write failing tests** (expected values are hand-derived from the formulas above; the implementer must additionally check ONE value locally against the wiki DPS calculator and record it in a comment, since this plan cannot fetch the wiki):
@@ -610,7 +610,7 @@ class MaxHitCalculatorTest
 	{
 		CombatStats s = CombatStats.builder().magic(99).magicDamagePercent(10).build();
 		assertEquals(26, MaxHitCalculator.magic(s, "Fire Surge")); // floor(24*1.10)=26
-		assertEquals(28, MaxHitCalculator.magic(CombatStats.builder().magic(99).build(), "trident of the swamp")); // 33-2=31? see note
+		assertEquals(31, MaxHitCalculator.magic(CombatStats.builder().magic(99).build(), "trident of the swamp")); // floor(99/3)-2
 		assertEquals(0, MaxHitCalculator.magic(s, "no such spell"));
 	}
 
@@ -630,7 +630,6 @@ class MaxHitCalculatorTest
 }
 ```
 
-Correct the trident line before running: `floor(99/3) - 2 = 31`, so assert `31`, not 28 (the test as drafted above is wrong on that one assertion; fix it to `31` in Step 1 so the plan's test is right).
 
 - [ ] **Step 2: Run to verify failure** — `./gradlew test --tests com.chunkblazer.gps.combat.MaxHitCalculatorTest` — Expected: compile errors.
 - [ ] **Step 3: Implement** exactly the formulas in the Interfaces block with `Math.floor` and `int` casts at the marked points.

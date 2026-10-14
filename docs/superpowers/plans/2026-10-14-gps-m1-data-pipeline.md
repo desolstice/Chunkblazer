@@ -2,48 +2,43 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a local-only wiki scraper (fetch, persistent cache, strict rate limit, descriptive User-Agent) that can start crawling early, then transforms producing the processed JSON the plugin loads at runtime, plus the Java loader that degrades gracefully when data is absent.
+**Goal:** Turn the raw wiki cache produced by the existing (separately owned, already running) scraper fetch layer into the processed JSON the plugin loads at runtime (monsters, items, quests with ordered steps and resolved locations, transport, locations, training), plus the Java loader that degrades gracefully when data is absent.
 
-**Architecture:** A stdlib-only Python package in `tools/wiki-scraper/` (never committed) crawls bulk wiki queries into a persistent per-page raw cache, then pure transform functions turn the cache into JSON files written to `~/.runelite/chunkblazer/gps-data/`. The plugin side adds `com.chunkblazer.gps.data` (DTOs + `GpsDataStore`) that reads that directory with Gson and never throws.
+**Architecture:** The fetch layer (Python stdlib, `tools/wiki-scraper/`, persistent raw cache, at most 10 requests/min) already exists and is NOT part of this plan. A new local-only Python package `tools/wiki-scraper/gps_process/` reads that cache through a read-only `RawCache` adapter, runs pure transform functions, and writes JSON files to `~/.runelite/chunkblazer/gps-data/`. The plugin side adds `com.chunkblazer.gps.data` (DTOs + `GpsDataStore`) that reads that directory with Gson and never throws.
 
-**Tech Stack:** Python 3.12 (stdlib: urllib, json, argparse, unittest), Java 11 release, Gson, Lombok, JUnit 5 (all already present; no new dependencies).
+**Tech Stack:** Python 3.12 (stdlib: json, re, argparse, unittest), Java 11 release, Gson, Lombok, JUnit 5 (all already present; no new dependencies).
 
 **Spec:** `docs/superpowers/specs/2026-10-14-progression-gps-design.md` (sections 4, 5.1, 5.2).
 
 ## Global Constraints
 
-- Nothing wiki-derived is ever committed or published: the scraper script, `tools/wiki-scraper/cache/`, and the processed output stay off GitHub. Exclusion is via `.git/info/exclude`, NOT the committed `.gitignore`.
-- Each wiki page is fetched exactly once (persistent raw cache); re-fetch only with `--refresh <page>`.
-- Strict self rate limit: one request every 5-10 s (6-12/min); exponential backoff on 429/5xx honouring `Retry-After`; descriptive User-Agent (tool name + contact), never a default agent. Prefer bulk queries (up to 20 titles per `action=query`, `action=bucket`, prices `/mapping`).
+- Nothing wiki-derived is ever committed or published: the scraper, its raw cache, the processing code and the processed output stay off GitHub. Exclusion is via `.git/info/exclude` (owned by the fetch agent; this plan does not edit it), NOT the committed `.gitignore`.
+- The fetch layer's rules stand and processing must not break them: each page fetched once (persistent raw cache), strict self rate limit, descriptive User-Agent, bulk queries. Processing code NEVER makes network requests and never writes to the raw cache; anything missing from the cache is requested from the fetch agent.
 - Processed output default: `~/.runelite/chunkblazer/gps-data/`; plugin config `gpsDataDir` overrides (blank = default). Nothing in `src/main/resources`.
 - Java: release 11, Gson + Lombok only, no new dependencies, logic classes have no `Client` dependency. Java tests use synthetic hand-written fixtures in `src/test/resources/com/chunkblazer/gps/`, never real wiki data.
-- Do not edit the committed `.gitignore`. Never `git add` anything under `tools/`.
-- The plans and spec are committed; the scraper is not. Commit steps below that touch only Java/docs use normal `git add` of explicit paths; scraper tasks have NO commit step (the tool is local-only) and instead end with the test run.
-- Contact for the User-Agent comes from env var `GPS_SCRAPER_CONTACT` (an email or URL); the scraper refuses to run without it and has no default.
+- Do not edit the committed `.gitignore` or `tools/wiki-scraper/` files owned by the fetch agent. Never `git add` anything under `tools/`.
+- The plans and spec are committed; the scraper and processing code are not. Commit steps below that touch only Java/docs use normal `git add` of explicit paths; Python tasks have NO commit step (local-only) and end with the test run.
+- Processing is ordered so it can be written and unit-tested against synthetic fixtures while the crawl is still running; the real `build` run waits for the cache (Task 12).
 
 ## Review Focus
 
-- Crawl killed mid-write (power loss, Ctrl-C): cache files must never be half-written, and a re-run must resume. Tested in Task 2 (atomic write + corrupt-file recovery).
-- HTTP 429 with a `Retry-After` header: the wait must honour it, not the default backoff. Tested in Task 2.
-- `GPS_SCRAPER_CONTACT` unset: the CLI must refuse to fetch rather than send a generic User-Agent. Tested in Task 3.
-- A wiki page that does not exist (title guessed wrong) or has no recognisable sections: transforms must skip it, count it in the validation report, and never crash. Tested in Tasks 8 and 12.
+- Raw-cache entry truncated or corrupt (the crawl was killed mid-write) or the cache directory empty: `RawCache` must skip it and never raise; transforms see fewer pages, not a crash. Tested in Task 1.
+- A wiki page that does not exist (title guessed wrong) or has no recognisable sections: transforms must skip it, count it in the validation report, and never crash. Tested in Tasks 7, 8 and 12.
+- Bucket rows with missing/renamed fields or non-numeric values: skipped or defaulted, never an exception. Tested in Task 6.
+- Quest steps whose location cannot be resolved: kept in order, flagged approximate or `NONE`, and counted in the validation report. Tested in Task 8.
 - `gps-data` directory missing, a file empty, or a file containing invalid JSON: the Java loader must return partial data plus a status and never throw. Tested in Task 13.
 
 ## File Structure
 
-Local only (excluded from git):
-- `tools/wiki-scraper/gps_scraper/__init__.py`
-- `tools/wiki-scraper/gps_scraper/ratelimit.py` — `RateLimiter`
-- `tools/wiki-scraper/gps_scraper/cache.py` — `Cache` (atomic, per-key files)
-- `tools/wiki-scraper/gps_scraper/fetcher.py` — `Fetcher` (UA, backoff, cache-through)
-- `tools/wiki-scraper/gps_scraper/wiki.py` — bulk API helpers (`pages_wikitext`, `bucket`, `mapping`, `category_members`)
-- `tools/wiki-scraper/gps_scraper/manifest.py` — discovery + `manifest.json`
-- `tools/wiki-scraper/gps_scraper/wikitext.py` — shared wikitext helpers (strip markup, links, templates, tables)
-- `tools/wiki-scraper/gps_scraper/build_*.py` — one transform per output (`items`, `monsters`, `quests`, `locations`, `transport`, `training`)
-- `tools/wiki-scraper/gps_scraper/validate.py` — validation report + `data_version.json`
-- `tools/wiki-scraper/gps_scraper/cli.py`, `tools/wiki-scraper/scraper.py` (entry point)
-- `tools/wiki-scraper/tests/` — unittest tests and `fixtures/` (tiny hand-written samples)
-- `tools/wiki-scraper/NOTES.md` — probe findings (real field names, bucket names)
+Local only (excluded from git; the fetch layer's files in `tools/wiki-scraper/` already exist and are not listed):
+- `tools/wiki-scraper/gps_process/__init__.py`
+- `tools/wiki-scraper/gps_process/rawcache.py` — read-only `RawCache` over the fetch layer's cache (Task 1)
+- `tools/wiki-scraper/gps_process/wikitext.py` — shared wikitext helpers (strip markup, links, templates, tables)
+- `tools/wiki-scraper/gps_process/build_*.py` — one transform per output (`items`, `monsters`, `quests`, `steps`, `locations`, `transport`, `training`), `build.py` orchestrator
+- `tools/wiki-scraper/gps_process/validate.py` — validation report + `data_version.json`
+- `tools/wiki-scraper/process.py` — entry point (`build`, `validate`)
+- `tools/wiki-scraper/gps_process/tests/` — unittest tests and `fixtures/` (tiny hand-written samples)
+- `tools/wiki-scraper/gps_process/NOTES.md` — cache layout, real field names, bucket names, template names
 
 Committed (Java):
 - `src/main/java/com/chunkblazer/gps/data/*.java` — DTOs
@@ -76,757 +71,153 @@ Local `overrides/` files (hand-written, optional): `quest_step_overrides.json` =
 
 ## Tasks
 
-Order matters: Tasks 1-4 make the scraper usable and START THE CRAWL; Tasks 5-12 are transforms written while the crawl runs; Tasks 13-14 are the Java side and are independent of the crawl, so they can run in parallel with it.
+Order matters: the fetch layer already exists and its crawl is already running (not planned here). Task 1 (raw-cache reader) comes first; Tasks 5-12 are transforms written and unit-tested against synthetic fixtures while the crawl runs, and the real `build` run happens at the end of Task 12 once the cache is complete. Tasks 13-14 are the Java side, independent of the crawl, and can run in parallel with everything else. Tasks 2-4 are intentionally empty (they belonged to the fetch layer).
 
-### Task 1: Local-only scaffolding
+### Existing component: the fetch layer (owned by the scraper agent, NOT planned here)
 
-**Files:**
-- Modify: `.git/info/exclude` (local, not committed)
-- Create: `tools/wiki-scraper/gps_scraper/__init__.py` (empty), `tools/wiki-scraper/tests/__init__.py` (empty)
+A separate agent is building and running the wiki scraper's FETCH layer right now (Python stdlib, in `tools/wiki-scraper/`, persistent raw cache, at most 10 requests/min, descriptive User-Agent, backoff on 429/5xx, MediaWiki batched queries and possibly the Bucket API). That agent owns `tools/wiki-scraper/` (its code, its cache, its tests) and `.git/info/exclude`. This plan builds on it and must not edit those. Tasks 1-4 of the earlier draft of this plan (rate limiter, cache, fetcher, API helpers, manifest, crawl) are therefore removed; the numbering of the remaining tasks is kept so cross-references stay valid. The one thing this plan needs from the fetch layer is a way to READ its raw cache, handled in Task 1 below.
 
-**Interfaces:**
-- Produces: package `gps_scraper` importable when cwd is `tools/wiki-scraper`; tests run with `python -m unittest discover -s tests -t .` from that directory.
+Processing code lives in a separate, equally local-only package `tools/wiki-scraper/gps_process/` (excluded by the same `tools/wiki-scraper/` rule, so it never reaches git) with its entry point `tools/wiki-scraper/process.py` (`python process.py build|validate`). If the fetch agent objects to files appearing under its directory, relocate to `tools/wiki-process/` and add that path to `.git/info/exclude` through the fetch agent or the coordinator (do not edit the exclude file directly).
 
-- [ ] **Step 1: Add the local exclusion (idempotent)**
+Coordination requests to the fetch agent (record the answers in `tools/wiki-scraper/gps_process/NOTES.md`):
+1. Cache layout and record format (so Task 1's adapter can be written against reality).
+2. Which groups it fetches: quest pages, `<Quest>/Quick guide` pages, monsters, items/prices mapping, shops, transport pages (spirit trees, fairy rings, gliders, teleports), training pages, and NPC/object/place pages linked from quick guides. Anything missing is requested from that agent (Task 12 produces the list of link targets to fetch).
+3. The real Bucket names and field names it saw, and the real coordinate template names in quick guides/NPC pages (Tasks 6-9 use best-guess names that must be corrected to these).
 
-```bash
-cd /d/Github/chunkblazer
-grep -qx 'tools/wiki-scraper/' .git/info/exclude || printf 'tools/wiki-scraper/\n' >> .git/info/exclude
-grep -qx 'gps-data/' .git/info/exclude || printf 'gps-data/\n' >> .git/info/exclude
-mkdir -p tools/wiki-scraper/gps_scraper tools/wiki-scraper/tests/fixtures
-: > tools/wiki-scraper/gps_scraper/__init__.py
-: > tools/wiki-scraper/tests/__init__.py
-```
-
-- [ ] **Step 2: Verify git cannot see the tool and the committed .gitignore is untouched**
-
-Run: `git status --short; git check-ignore -v tools/wiki-scraper/gps_scraper/__init__.py; git diff --stat -- .gitignore`
-Expected: `git status` shows no `tools/` entries; `check-ignore` prints a rule (either `.git/info/exclude` or the old `tools/` rule); `.gitignore` diff is empty.
-
-- [ ] **Step 3: Write and run a trivial test proving the harness works**
-
-Create `tools/wiki-scraper/tests/test_smoke.py`:
-
-```python
-import unittest
-
-class Smoke(unittest.TestCase):
-    def test_import(self):
-        import gps_scraper
-        self.assertIsNotNone(gps_scraper)
-```
-
-Run: `cd tools/wiki-scraper && python -m unittest discover -s tests -t . -v`
-Expected: `OK` (1 test).
-
-No commit (local-only).
-
-### Task 2: Rate limiter, atomic cache, fetcher (usable scraper core)
+### Task 1: Raw-cache reader adapter and processing scaffolding
 
 **Files:**
-- Create: `tools/wiki-scraper/gps_scraper/ratelimit.py`, `cache.py`, `fetcher.py`
-- Test: `tools/wiki-scraper/tests/test_fetcher.py`
+- Create: `tools/wiki-scraper/gps_process/__init__.py` (empty), `tools/wiki-scraper/gps_process/rawcache.py`, `tools/wiki-scraper/gps_process/NOTES.md`, `tools/wiki-scraper/process.py`
+- Create: `tools/wiki-scraper/gps_process/tests/__init__.py`, `tests/test_rawcache.py`, `tests/fixtures/` (tiny hand-written raw-cache samples in the fetch layer's real format)
 
 **Interfaces:**
-- Produces:
-  - `RateLimiter(min_s=5.0, max_s=10.0, clock=time.monotonic, sleep=time.sleep, rng=random.Random())` with `wait() -> float` (sleeps so consecutive requests are at least a random 5-10 s apart, returns seconds slept).
-  - `Cache(root: str)` with `get(ns: str, key: str) -> dict | None`, `put(ns: str, key: str, record: dict) -> None` (atomic), `has(ns, key) -> bool`. A record is a plain dict, stored as `<root>/<ns>/<sha1(key)>.json` containing `{"key": key, "record": record}`.
-  - `Fetcher(cache, limiter, contact, transport=default_transport, sleep=time.sleep)` with `get(url: str, params: dict, ns: str, cache_key: str, refresh=False) -> str` (cache-through; returns body text) and `user_agent` property. `Transport = Callable[[str, dict], tuple[int, dict, bytes]]` taking `(url, headers)`; returns `(status, headers_lowercased, body)`.
-  - `FetchError(Exception)` on non-retryable failure or retries exhausted.
-
-- [ ] **Step 1: Write the failing tests**
+- Consumes: the fetch layer's on-disk cache (read-only; this code never writes to it and never makes network requests).
+- Produces (`rawcache.py`) a read-only facade used by every transform:
 
 ```python
-# tests/test_fetcher.py
-import json, os, tempfile, unittest
-from gps_scraper.cache import Cache
-from gps_scraper.fetcher import Fetcher, FetchError
-from gps_scraper.ratelimit import RateLimiter
-
-class FakeClock:
-    def __init__(self): self.t = 0.0; self.slept = []
-    def now(self): return self.t
-    def sleep(self, s): self.slept.append(s); self.t += s
-
-def make(transport, tmp):
-    clk = FakeClock()
-    lim = RateLimiter(5, 10, clock=clk.now, sleep=clk.sleep, rng=__import__("random").Random(1))
-    f = Fetcher(Cache(tmp), lim, "me@example.com", transport=transport, sleep=clk.sleep)
-    return f, clk
-
-class FetcherTests(unittest.TestCase):
-    def test_user_agent_is_descriptive_and_has_contact(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            f, _ = make(lambda u, h: (200, {}, b"x"), tmp)
-            self.assertIn("ChunkBlazerGPS", f.user_agent)
-            self.assertIn("me@example.com", f.user_agent)
-
-    def test_each_key_fetched_once(self):
-        calls = []
-        def tr(url, headers): calls.append((url, headers)); return 200, {}, b"hello"
-        with tempfile.TemporaryDirectory() as tmp:
-            f, _ = make(tr, tmp)
-            self.assertEqual(f.get("http://x/api", {"a": "1"}, "page", "A"), "hello")
-            self.assertEqual(f.get("http://x/api", {"a": "1"}, "page", "A"), "hello")
-            self.assertEqual(len(calls), 1)
-            self.assertEqual(calls[0][1]["User-Agent"], f.user_agent)
-            f.get("http://x/api", {"a": "1"}, "page", "A", refresh=True)
-            self.assertEqual(len(calls), 2)
-
-    def test_rate_limit_spacing_between_requests(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            f, clk = make(lambda u, h: (200, {}, b"x"), tmp)
-            f.get("http://x", {}, "p", "1"); f.get("http://x", {}, "p", "2"); f.get("http://x", {}, "p", "3")
-            gaps = [s for s in clk.slept if s > 0]
-            self.assertEqual(len(gaps), 2)  # first request does not wait
-            for g in gaps: self.assertTrue(5 <= g <= 10, g)
-
-    def test_backoff_on_5xx_then_success(self):
-        seq = iter([(503, {}, b""), (502, {}, b""), (200, {}, b"ok")])
-        with tempfile.TemporaryDirectory() as tmp:
-            f, clk = make(lambda u, h: next(seq), tmp)
-            self.assertEqual(f.get("http://x", {}, "p", "1"), "ok")
-            backoffs = [s for s in clk.slept if s >= 30]
-            self.assertEqual(len(backoffs), 2)
-            self.assertGreater(backoffs[1], backoffs[0])  # exponential
-
-    def test_429_retry_after_is_honoured(self):
-        seq = iter([(429, {"retry-after": "120"}, b""), (200, {}, b"ok")])
-        with tempfile.TemporaryDirectory() as tmp:
-            f, clk = make(lambda u, h: next(seq), tmp)
-            f.get("http://x", {}, "p", "1")
-            self.assertIn(120, clk.slept)
-
-    def test_gives_up_after_max_attempts_and_does_not_cache_failure(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            f, _ = make(lambda u, h: (500, {}, b""), tmp)
-            with self.assertRaises(FetchError):
-                f.get("http://x", {}, "p", "1")
-            self.assertFalse(Cache(tmp).has("p", "1"))
-
-    def test_404_is_not_retried_and_not_cached(self):
-        n = []
-        def tr(u, h): n.append(1); return 404, {}, b"nope"
-        with tempfile.TemporaryDirectory() as tmp:
-            f, _ = make(tr, tmp)
-            with self.assertRaises(FetchError):
-                f.get("http://x", {}, "p", "1")
-            self.assertEqual(len(n), 1)
-
-class CacheTests(unittest.TestCase):
-    def test_roundtrip_and_atomic_no_tmp_left(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            c = Cache(tmp)
-            c.put("page", "Cook's Assistant", {"body": "x"})
-            self.assertEqual(c.get("page", "Cook's Assistant"), {"body": "x"})
-            leftovers = [n for d, _, fs in os.walk(tmp) for n in fs if n.endswith(".tmp")]
-            self.assertEqual(leftovers, [])
-
-    def test_corrupt_file_is_treated_as_missing(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            c = Cache(tmp)
-            c.put("page", "A", {"body": "x"})
-            path = c._path("page", "A")
-            with open(path, "w") as fh: fh.write('{"key": "A", "rec')  # truncated write
-            self.assertIsNone(c.get("page", "A"))
-            self.assertFalse(c.has("page", "A"))
+class RawCache:
+    @staticmethod
+    def open(root: str) -> "RawCache": ...
+    def pages(self) -> dict[str, str | None]:
+        """title -> wikitext; None for a page the wiki reported missing."""
+    def page(self, title: str) -> str | None: ...
+    def bucket_rows(self, bucket_name: str) -> list[dict]:
+        """all cached rows of a Bucket query, concatenated across pages (empty list if never fetched)."""
+    def mapping(self) -> list[dict]:
+        """the prices /mapping rows (id, name, members, ...), or []"""
+    def titles(self) -> list[str]: ...
 ```
 
-- [ ] **Step 2: Run to verify failure**
+`process.py` parses `--raw DIR` (default `tools/wiki-scraper/cache`, or whatever the fetch layer uses; confirm), `--out DIR` (default `~/.runelite/chunkblazer/gps-data`) and the subcommands `build` and `validate`, implemented in Tasks 6-12 (`gps_process.build.build_all(args)`, `gps_process.validate.run(args)`).
 
-Run: `cd tools/wiki-scraper && python -m unittest tests.test_fetcher -v`
-Expected: ImportError (modules missing).
+- [ ] **Step 1: Read the fetch layer's cache code and one real cache file; write what you find in `NOTES.md`** (layout, key scheme, record fields such as body/url/fetched_at, how batched `action=query` responses are stored (per title or per request), how Bucket pages and the mapping are stored). Do not guess: open the files.
 
-- [ ] **Step 3: Implement**
+- [ ] **Step 2: Write the failing test against a hand-built fixture in that exact format**
+
+Create `tests/fixtures/` by writing 4 tiny cache entries in the fetch layer's real format (copy the structure of real entries, but hand-type the content, and keep it synthetic): one wikitext page ("Cook's Assistant" with a two-line body), one missing page, one Bucket page with two monster rows, one mapping with one item. Then:
 
 ```python
-# gps_scraper/ratelimit.py
-import random, time
+# tests/test_rawcache.py
+import os, unittest
+from gps_process.rawcache import RawCache
 
-class RateLimiter:
-    """Guarantees a random 5-10 s gap between request starts. First call does not wait."""
-    def __init__(self, min_s=5.0, max_s=10.0, clock=time.monotonic, sleep=time.sleep, rng=None):
-        self.min_s, self.max_s = min_s, max_s
-        self.clock, self.sleep = clock, sleep
-        self.rng = rng or random.Random()
-        self._last = None
+FIX = os.path.join(os.path.dirname(__file__), "fixtures")
 
-    def wait(self):
-        slept = 0.0
-        if self._last is not None:
-            gap = self.rng.uniform(self.min_s, self.max_s)
-            remaining = gap - (self.clock() - self._last)
-            if remaining > 0:
-                self.sleep(remaining)
-                slept = remaining
-        self._last = self.clock()
-        return slept
+class RawCacheTests(unittest.TestCase):
+    def setUp(self):
+        self.c = RawCache.open(FIX)
+
+    def test_pages_and_missing(self):
+        pages = self.c.pages()
+        self.assertIn("Cook's Assistant", pages)
+        self.assertIsInstance(pages["Cook's Assistant"], str)
+        self.assertIsNone(pages["No Such Page"])
+
+    def test_page_lookup(self):
+        self.assertIsNone(self.c.page("never fetched"))
+        self.assertIn("Cook", self.c.page("Cook's Assistant"))
+
+    def test_bucket_rows(self):
+        rows = self.c.bucket_rows("infobox_monster")
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(self.c.bucket_rows("never_fetched"), [])
+
+    def test_mapping(self):
+        self.assertEqual(self.c.mapping()[0]["id"], 1291)
+
+    def test_empty_directory_is_empty_not_crash(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            c = RawCache.open(d)
+            self.assertEqual(c.pages(), {})
+            self.assertEqual(c.mapping(), [])
+            self.assertEqual(c.bucket_rows("x"), [])
+
+    def test_corrupt_entry_skipped(self):
+        import tempfile, json
+        with tempfile.TemporaryDirectory() as d:
+            # write one corrupt file in the same place/shape the fetch layer uses (see NOTES.md)
+            RawCacheTestHelpers.write_corrupt(d)
+            self.assertEqual(RawCache.open(d).pages(), {})
 ```
 
-```python
-# gps_scraper/cache.py
-import hashlib, json, os
+(`RawCacheTestHelpers.write_corrupt` is a small helper in the test module that writes a truncated JSON file into the layout found in Step 1.)
 
-class Cache:
-    def __init__(self, root):
-        self.root = root
+- [ ] **Step 3: Run to verify failure**
 
-    def _path(self, ns, key):
-        h = hashlib.sha1(key.encode("utf-8")).hexdigest()
-        return os.path.join(self.root, ns, h + ".json")
+Run: `cd tools/wiki-scraper && python -m unittest discover -s gps_process/tests -t . -v`
+Expected: ImportError (rawcache missing).
 
-    def get(self, ns, key):
-        try:
-            with open(self._path(ns, key), "r", encoding="utf-8") as fh:
-                obj = json.load(fh)
-            if obj.get("key") != key:
-                return None
-            return obj["record"]
-        except (OSError, ValueError, KeyError):
-            return None
-
-    def has(self, ns, key):
-        return self.get(ns, key) is not None
-
-    def put(self, ns, key, record):
-        path = self._path(ns, key)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump({"key": key, "record": record}, fh, ensure_ascii=False)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, path)
-
-    def keys(self, ns):
-        d = os.path.join(self.root, ns)
-        if not os.path.isdir(d):
-            return
-        for name in sorted(os.listdir(d)):
-            if name.endswith(".json"):
-                try:
-                    with open(os.path.join(d, name), "r", encoding="utf-8") as fh:
-                        obj = json.load(fh)
-                    yield obj["key"], obj["record"]
-                except (OSError, ValueError, KeyError):
-                    continue
-```
+- [ ] **Step 4: Implement `RawCache` against the real layout** (read-only; tolerate corrupt/truncated entries by skipping them; never raise on a missing directory). Add `process.py`:
 
 ```python
-# gps_scraper/fetcher.py
-import time, urllib.error, urllib.parse, urllib.request
-
-class FetchError(Exception):
-    pass
-
-def default_transport(url, headers):
-    req = urllib.request.Request(url, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            return resp.status, {k.lower(): v for k, v in resp.headers.items()}, resp.read()
-    except urllib.error.HTTPError as e:
-        return e.code, {k.lower(): v for k, v in e.headers.items()}, e.read() or b""
-    except (urllib.error.URLError, TimeoutError) as e:
-        return 599, {}, str(e).encode("utf-8")
-
-class Fetcher:
-    MAX_ATTEMPTS = 6
-    BASE_BACKOFF = 30
-    MAX_BACKOFF = 900
-
-    def __init__(self, cache, limiter, contact, transport=default_transport, sleep=time.sleep):
-        self.cache, self.limiter, self.contact = cache, limiter, contact
-        self.transport, self.sleep = transport, sleep
-
-    @property
-    def user_agent(self):
-        return f"ChunkBlazerGPS-personal-scraper/0.1 (personal offline use, 6-12 req/min, cached; contact: {self.contact})"
-
-    def get(self, url, params, ns, cache_key, refresh=False):
-        if not refresh:
-            hit = self.cache.get(ns, cache_key)
-            if hit is not None:
-                return hit["body"]
-        full = url + ("?" + urllib.parse.urlencode(params) if params else "")
-        headers = {"User-Agent": self.user_agent, "Accept-Encoding": "identity"}
-        for attempt in range(self.MAX_ATTEMPTS):
-            self.limiter.wait()
-            status, rh, body = self.transport(full, headers)
-            if status == 200:
-                text = body.decode("utf-8")
-                self.cache.put(ns, cache_key, {"body": text, "url": full, "fetched_at": time.time()})
-                return text
-            if status == 429 or status >= 500:
-                if "retry-after" in rh:
-                    try:
-                        delay = int(float(rh["retry-after"]))
-                    except ValueError:
-                        delay = self.BASE_BACKOFF
-                else:
-                    delay = min(self.BASE_BACKOFF * (2 ** attempt), self.MAX_BACKOFF)
-                self.sleep(delay)
-                continue
-            raise FetchError(f"HTTP {status} for {full}")
-        raise FetchError(f"gave up after {self.MAX_ATTEMPTS} attempts: {full}")
-```
-
-Note: in `test_backoff_on_5xx_then_success` the delays are 30 then 60 (both >= 30, increasing); in the 429 test the sleep list contains exactly `120`.
-
-- [ ] **Step 4: Run tests**
-
-Run: `cd tools/wiki-scraper && python -m unittest tests.test_fetcher -v`
-Expected: all PASS.
-
-No commit (local-only).
-
-### Task 3: Bulk wiki API helpers and CLI skeleton (scraper usable)
-
-**Files:**
-- Create: `tools/wiki-scraper/gps_scraper/wiki.py`, `cli.py`, `tools/wiki-scraper/scraper.py`
-- Test: `tools/wiki-scraper/tests/test_wiki.py`, `tests/test_cli.py`
-
-**Interfaces:**
-- Consumes: `Fetcher.get`, `Cache`.
-- Produces (`wiki.py`):
-  - `API = "https://oldschool.runescape.wiki/api.php"`, `MAPPING = "https://prices.runescape.wiki/api/v1/osrs/mapping"`.
-  - `pages_wikitext(fetcher, cache, titles: list[str], refresh=False, batch=20) -> dict[str, str | None]` — fetches only titles not already in cache namespace `page` (each title cached separately; missing pages cached as `{"missing": true}`), 20 titles per request, returns title -> wikitext or `None` if the page does not exist. Follows redirects (`redirects=1`) and maps results back to the requested titles.
-  - `category_members(fetcher, category: str) -> list[str]` (follows `cmcontinue`, ns `cat`).
-  - `bucket(fetcher, bucket_name: str, fields: list[str], where: str | None = None, page_size=500) -> list[dict]` (ns `bucket`, pages by offset until a short page; each offset page cached by key `f"{bucket_name}|{where}|{offset}"`).
-  - `mapping(fetcher) -> list[dict]` (ns `mapping`, key `"mapping"`).
-- Produces (`cli.py`): `main(argv) -> int` with subcommands `probe`, `plan`, `crawl`, `status`, `build`, `validate` (the last three added in later tasks; this task creates `probe`, `status` and the common option parsing). Common options: `--cache DIR` (default `tools/wiki-scraper/cache`), `--out DIR` (default `~/.runelite/chunkblazer/gps-data`), `--refresh PAGE` (repeatable).
-- `get_fetcher(args, env) -> Fetcher` raises `SystemExit("GPS_SCRAPER_CONTACT is not set ...")` if the env var is empty.
-
-- [ ] **Step 1: Write failing tests**
-
-```python
-# tests/test_wiki.py
-import json, tempfile, unittest
-from gps_scraper.cache import Cache
-from gps_scraper.fetcher import Fetcher
-from gps_scraper.ratelimit import RateLimiter
-from gps_scraper import wiki
-
-def mk(handler, tmp):
-    lim = RateLimiter(0, 0, clock=lambda: 0.0, sleep=lambda s: None)
-    return Fetcher(Cache(tmp), lim, "me@example.com", transport=handler, sleep=lambda s: None)
-
-def query_response(pages, redirects=None, normalized=None):
-    q = {"pages": pages}
-    if redirects: q["redirects"] = redirects
-    if normalized: q["normalized"] = normalized
-    return json.dumps({"query": q}).encode()
-
-class WikiTests(unittest.TestCase):
-    def test_pages_batched_cached_and_missing_recorded(self):
-        urls = []
-        def tr(url, h):
-            urls.append(url)
-            pages = [{"title": "A", "revisions": [{"slots": {"main": {"content": "wikitext A"}}}]},
-                     {"title": "B", "missing": True}]
-            return 200, {}, query_response(pages)
-        with tempfile.TemporaryDirectory() as tmp:
-            f = mk(tr, tmp)
-            out = wiki.pages_wikitext(f, f.cache, ["A", "B"])
-            self.assertEqual(out, {"A": "wikitext A", "B": None})
-            out2 = wiki.pages_wikitext(f, f.cache, ["A", "B"])
-            self.assertEqual(out2, out)
-            self.assertEqual(len(urls), 1)  # second call fully served from cache
-            self.assertIn("titles=A%7CB", urls[0])
-
-    def test_batches_of_twenty(self):
-        urls = []
-        def tr(url, h):
-            urls.append(url); return 200, {}, query_response([])
-        with tempfile.TemporaryDirectory() as tmp:
-            f = mk(tr, tmp)
-            wiki.pages_wikitext(f, f.cache, [f"T{i}" for i in range(45)])
-            self.assertEqual(len(urls), 3)
-
-    def test_redirect_maps_back_to_requested_title(self):
-        def tr(url, h):
-            return 200, {}, query_response(
-                [{"title": "Real", "revisions": [{"slots": {"main": {"content": "body"}}}]}],
-                redirects=[{"from": "Alias", "to": "Real"}])
-        with tempfile.TemporaryDirectory() as tmp:
-            f = mk(tr, tmp)
-            self.assertEqual(wiki.pages_wikitext(f, f.cache, ["Alias"]), {"Alias": "body"})
-
-    def test_bucket_pages_until_short_page(self):
-        calls = []
-        def tr(url, h):
-            calls.append(url)
-            rows = [{"page_name": f"M{i}"} for i in range(2)] if len(calls) == 1 else [{"page_name": "M2"}]
-            return 200, {}, json.dumps({"bucket": rows}).encode()
-        with tempfile.TemporaryDirectory() as tmp:
-            f = mk(tr, tmp)
-            rows = wiki.bucket(f, "infobox_monster", ["page_name"], page_size=2)
-            self.assertEqual([r["page_name"] for r in rows], ["M0", "M1", "M2"])
-            self.assertEqual(len(calls), 2)
-```
-
-```python
-# tests/test_cli.py
-import unittest
-from gps_scraper import cli
-
-class CliTests(unittest.TestCase):
-    def test_refuses_without_contact(self):
-        with self.assertRaises(SystemExit) as cm:
-            cli.get_fetcher(cli.parse(["probe"]), env={})
-        self.assertIn("GPS_SCRAPER_CONTACT", str(cm.exception))
-
-    def test_builds_fetcher_with_contact(self):
-        f = cli.get_fetcher(cli.parse(["probe"]), env={"GPS_SCRAPER_CONTACT": "me@example.com"})
-        self.assertIn("me@example.com", f.user_agent)
-```
-
-- [ ] **Step 2: Run to verify failure**
-
-Run: `cd tools/wiki-scraper && python -m unittest tests.test_wiki tests.test_cli -v`
-Expected: ImportError / failures.
-
-- [ ] **Step 3: Implement `wiki.py`**
-
-```python
-# gps_scraper/wiki.py
-import json
-
-API = "https://oldschool.runescape.wiki/api.php"
-MAPPING = "https://prices.runescape.wiki/api/v1/osrs/mapping"
-
-def _chunks(seq, n):
-    for i in range(0, len(seq), n):
-        yield seq[i:i + n]
-
-def pages_wikitext(fetcher, cache, titles, refresh=False, batch=20):
-    out = {}
-    todo = []
-    for t in titles:
-        hit = None if refresh else cache.get("page", t)
-        if hit is None:
-            todo.append(t)
-        else:
-            out[t] = None if hit.get("missing") else hit["wikitext"]
-    for group in _chunks(todo, batch):
-        params = {"action": "query", "format": "json", "formatversion": "2", "redirects": "1",
-                  "prop": "revisions", "rvprop": "content", "rvslots": "main", "titles": "|".join(group)}
-        body = fetcher.get(API, params, "req", "titles|" + "|".join(group), refresh=refresh)
-        q = json.loads(body).get("query", {})
-        alias = {}
-        for n in q.get("normalized", []):
-            alias[n["from"]] = n["to"]
-        for r in q.get("redirects", []):
-            alias[r["from"]] = r["to"]
-        by_title = {}
-        for p in q.get("pages", []):
-            if p.get("missing") or "revisions" not in p:
-                by_title[p["title"]] = None
-            else:
-                by_title[p["title"]] = p["revisions"][0]["slots"]["main"]["content"]
-        for t in group:
-            final = t
-            for _ in range(3):  # follow normalized -> redirect chain
-                final = alias.get(final, final)
-            text = by_title.get(final)
-            cache.put("page", t, {"missing": True} if text is None else {"wikitext": text, "resolved": final})
-            out[t] = text
-    return out
-
-def category_members(fetcher, category):
-    members, cont = [], None
-    while True:
-        params = {"action": "query", "format": "json", "list": "categorymembers", "cmtitle": category,
-                  "cmlimit": "500"}
-        if cont:
-            params["cmcontinue"] = cont
-        body = fetcher.get(API, params, "cat", f"{category}|{cont}")
-        data = json.loads(body)
-        members += [m["title"] for m in data["query"]["categorymembers"]]
-        cont = data.get("continue", {}).get("cmcontinue")
-        if not cont:
-            return members
-
-def bucket(fetcher, bucket_name, fields, where=None, page_size=500):
-    rows, offset = [], 0
-    sel = ",".join("'" + f + "'" for f in fields)
-    while True:
-        q = f"bucket('{bucket_name}').select({sel})"
-        if where:
-            q += f".where({where})"
-        q += f".limit({page_size}).offset({offset}).run()"
-        body = fetcher.get(API, {"action": "bucket", "format": "json", "query": q},
-                           "bucket", f"{bucket_name}|{where}|{offset}")
-        page = json.loads(body).get("bucket", [])
-        rows += page
-        if len(page) < page_size:
-            return rows
-        offset += page_size
-
-def mapping(fetcher):
-    return json.loads(fetcher.get(MAPPING, {}, "mapping", "mapping"))
-```
-
-- [ ] **Step 4: Implement `cli.py` and entry point**
-
-```python
-# gps_scraper/cli.py
+# process.py
 import argparse, os, sys
-from .cache import Cache
-from .fetcher import Fetcher
-from .ratelimit import RateLimiter
 
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_CACHE = os.path.join(HERE, "cache")
+HERE = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_RAW = os.path.join(HERE, "cache")   # change if the fetch layer uses another directory
 DEFAULT_OUT = os.path.join(os.path.expanduser("~"), ".runelite", "chunkblazer", "gps-data")
 
-def parse(argv):
-    p = argparse.ArgumentParser(prog="scraper.py")
-    p.add_argument("command", choices=["probe", "plan", "crawl", "status", "build", "validate"])
-    p.add_argument("--cache", default=DEFAULT_CACHE)
-    p.add_argument("--out", default=DEFAULT_OUT)
-    p.add_argument("--refresh", action="append", default=[])
-    p.add_argument("--only", default=None, help="crawl/build only this group")
-    return p.parse_args(argv)
-
-def get_fetcher(args, env=None):
-    env = os.environ if env is None else env
-    contact = (env.get("GPS_SCRAPER_CONTACT") or "").strip()
-    if not contact:
-        raise SystemExit("GPS_SCRAPER_CONTACT is not set. Set it to an email or URL identifying you; "
-                         "the wiki requires a descriptive User-Agent with contact info.")
-    return Fetcher(Cache(args.cache), RateLimiter(5, 10), contact)
-
 def main(argv=None):
-    args = parse(argv if argv is not None else sys.argv[1:])
-    if args.command == "status":
-        from .manifest import print_status
-        return print_status(args)
-    fetcher = get_fetcher(args)
-    if args.command == "probe":
-        from .manifest import probe
-        return probe(fetcher, args)
-    if args.command == "plan":
-        from .manifest import plan
-        return plan(fetcher, args)
-    if args.command == "crawl":
-        from .manifest import crawl
-        return crawl(fetcher, args)
+    p = argparse.ArgumentParser(prog="process.py")
+    p.add_argument("command", choices=["build", "validate"])
+    p.add_argument("--raw", default=DEFAULT_RAW)
+    p.add_argument("--out", default=DEFAULT_OUT)
+    args = p.parse_args(argv)
     if args.command == "build":
-        from .build import build_all
+        from gps_process.build import build_all
         return build_all(args)
-    from .validate import run as validate_run
-    return validate_run(args)
-```
+    from gps_process.validate import run
+    return run(args)
 
-```python
-# scraper.py
-import sys
-from gps_scraper.cli import main
 if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 5: Run tests**
+(In later tasks, `args.cache` means `args.raw`; use `RawCache.open(args.raw)`.)
 
-Run: `cd tools/wiki-scraper && python -m unittest discover -s tests -t . -v`
-Expected: all PASS.
+- [ ] **Step 5: Run to verify pass**
 
-No commit (local-only).
+Run: `cd tools/wiki-scraper && python -m unittest discover -s gps_process/tests -t . -v`
+Expected: PASS. Confirm with `git status` that nothing under `tools/` appears. No commit (local-only).
 
-### Task 4: Probe, manifest, and START THE CRAWL
+### Task 2: Reserved
 
-**Files:**
-- Create: `tools/wiki-scraper/gps_scraper/manifest.py`, `tools/wiki-scraper/NOTES.md`
-- Test: `tools/wiki-scraper/tests/test_manifest.py`
+Fetch layer (rate limiter, cache, fetcher): owned by the scraper agent. Nothing to do.
 
-**Interfaces:**
-- Consumes: `wiki.pages_wikitext`, `wiki.category_members`, `wiki.bucket`, `wiki.mapping`.
-- Produces (`manifest.py`):
-  - `probe(fetcher, args) -> int`: makes the minimum number of real requests (about 6, all cached) to confirm the live API shapes and prints them; used once by hand.
-  - `build_manifest(quest_titles: list[str], extra_pages: dict[str, list[str]]) -> dict` — pure: `{"groups": {"quests": [...], "quick_guides": [...], "transport": [...], "training": [...], "locations": [...]}, "buckets": [{"name": "infobox_monster", "fields": [...]}, ...], "mapping": true}`.
-  - `plan(fetcher, args) -> int`: discovers quest titles via `category_members("Category:Quests")`, writes `<cache>/manifest.json`.
-  - `crawl(fetcher, args) -> int`: reads `manifest.json`, fetches in priority order (mapping, buckets, quests, quick guides, transport pages, training pages, locations), resumable (cache-through), prints `done/total` and ETA, handles Ctrl-C cleanly (exit 130, cache intact).
-  - `print_status(args) -> int`: counts cached entries per namespace and per manifest group, fetched vs outstanding, and the ETA at 8 s/request.
-  - `QUICK_GUIDE_SUFFIX = "/Quick guide"`.
+### Task 3: Reserved
 
-- [ ] **Step 1: Write failing tests for the pure part**
+Fetch layer (bulk API helpers, CLI): owned by the scraper agent. Nothing to do.
 
-```python
-# tests/test_manifest.py
-import unittest
-from gps_scraper import manifest
+### Task 4: Reserved (crawl)
 
-class ManifestTests(unittest.TestCase):
-    def test_quick_guide_titles_derived_from_quests(self):
-        m = manifest.build_manifest(["Cook's Assistant", "Dragon Slayer II"], {})
-        self.assertEqual(m["groups"]["quests"], ["Cook's Assistant", "Dragon Slayer II"])
-        self.assertEqual(m["groups"]["quick_guides"],
-                         ["Cook's Assistant/Quick guide", "Dragon Slayer II/Quick guide"])
-
-    def test_default_buckets_and_mapping_present(self):
-        m = manifest.build_manifest([], {})
-        names = [b["name"] for b in m["buckets"]]
-        self.assertIn("infobox_monster", names)
-        self.assertIn("storeline", names)
-        self.assertTrue(m["mapping"])
-
-    def test_extra_pages_deduplicated_and_ordered(self):
-        m = manifest.build_manifest([], {"transport": ["Fairy ring", "Fairy ring", "Spirit tree"]})
-        self.assertEqual(m["groups"]["transport"], ["Fairy ring", "Spirit tree"])
-
-    def test_estimate_seconds(self):
-        self.assertEqual(manifest.eta_seconds(requests_left=10, per_request=8), 80)
-```
-
-- [ ] **Step 2: Run to verify failure**
-
-Run: `cd tools/wiki-scraper && python -m unittest tests.test_manifest -v` — Expected: ImportError.
-
-- [ ] **Step 3: Implement `manifest.py`**
-
-```python
-# gps_scraper/manifest.py
-import json, os, sys, time
-from . import wiki
-
-QUICK_GUIDE_SUFFIX = "/Quick guide"
-
-DEFAULT_BUCKETS = [
-    {"name": "infobox_monster", "fields": ["page_name", "name", "hitpoints", "combat_level", "max_hit",
-                                            "attack_style", "defence_level", "stab_defence_bonus",
-                                            "slash_defence_bonus", "crush_defence_bonus",
-                                            "magic_defence_bonus", "ranged_defence_bonus", "id"]},
-    {"name": "storeline", "fields": ["page_name", "sold_by", "sold_item", "store_stock",
-                                      "store_sell_price"]},
-    {"name": "infobox_item", "fields": ["page_name", "item_name", "item_id", "members", "weight"]},
-    {"name": "infobox_bonuses", "fields": ["page_name", "slot", "equipment_slot"]},
-    {"name": "dropsline", "fields": ["page_name", "item_name", "drop_json"]},
-]
-# NOTE: field names above are the best guess. Task 4 Step 4 (probe) confirms them against the live
-# API and the corrected names are recorded in NOTES.md and fixed here before the crawl starts.
-
-DEFAULT_PAGES = {
-    "transport": ["Teleportation", "Teleportation/Spell", "Spirit tree", "Fairy ring", "Gnome glider",
-                  "Charter ship", "Minigame Teleportation", "Magic carpet", "Canoe", "Ship", "Mine cart"],
-    "training": [f"{s} training" for s in
-                 ["Attack", "Strength", "Defence", "Ranged", "Prayer", "Magic", "Runecraft", "Construction",
-                  "Hitpoints", "Agility", "Herblore", "Thieving", "Crafting", "Fletching", "Slayer",
-                  "Hunter", "Mining", "Smithing", "Fishing", "Cooking", "Firemaking", "Woodcutting",
-                  "Farming"]],
-    "locations": ["Bank", "Bank/Locations"],
-}
-
-def build_manifest(quest_titles, extra_pages):
-    groups = {k: list(dict.fromkeys(v)) for k, v in DEFAULT_PAGES.items()}
-    for k, v in extra_pages.items():
-        groups[k] = list(dict.fromkeys(groups.get(k, []) + v))
-    groups["quests"] = list(dict.fromkeys(quest_titles))
-    groups["quick_guides"] = [t + QUICK_GUIDE_SUFFIX for t in groups["quests"]]
-    return {"groups": groups, "buckets": DEFAULT_BUCKETS, "mapping": True}
-
-def eta_seconds(requests_left, per_request=8):
-    return requests_left * per_request
-
-def _manifest_path(args):
-    return os.path.join(args.cache, "manifest.json")
-
-def probe(fetcher, args):
-    print("1/6 mapping (first 2 rows)")
-    print(json.dumps(wiki.mapping(fetcher)[:2], indent=1))
-    print("2/6 bucket infobox_monster (limit 3, all fields)")
-    rows = wiki.bucket(fetcher, "infobox_monster", ["page_name", "hitpoints"], page_size=3)
-    print(json.dumps(rows[:3], indent=1))
-    print("3/6 category Quests (first 5)")
-    print(wiki.category_members(fetcher, "Category:Quests")[:5])
-    print("4/6 quick guide sample")
-    p = wiki.pages_wikitext(fetcher, fetcher.cache, ["Cook's Assistant/Quick guide"])
-    print((p["Cook's Assistant/Quick guide"] or "MISSING")[:1500])
-    print("5/6 quest page sample")
-    p = wiki.pages_wikitext(fetcher, fetcher.cache, ["Cook's Assistant"])
-    print((p["Cook's Assistant"] or "MISSING")[:2500])
-    print("6/6 transport page sample")
-    p = wiki.pages_wikitext(fetcher, fetcher.cache, ["Fairy ring"])
-    print((p["Fairy ring"] or "MISSING")[:1500])
-    print("\nRecord real field names / template names in tools/wiki-scraper/NOTES.md, then fix DEFAULT_BUCKETS.")
-    return 0
-
-def plan(fetcher, args):
-    quests = wiki.category_members(fetcher, "Category:Quests")
-    m = build_manifest(quests, {})
-    with open(_manifest_path(args), "w", encoding="utf-8") as fh:
-        json.dump(m, fh, indent=1)
-    print(f"manifest: {len(quests)} quests, {sum(len(v) for v in m['groups'].values())} pages")
-    return 0
-
-def _outstanding(m, cache):
-    todo = []
-    if m["mapping"] and not cache.has("mapping", "mapping"):
-        todo.append(("mapping", None))
-    for b in m["buckets"]:
-        if not cache.has("bucket", f"{b['name']}|None|0"):
-            todo.append(("bucket", b))
-    for group in ["quests", "quick_guides", "transport", "training", "locations"]:
-        titles = [t for t in m["groups"].get(group, []) if not cache.has("page", t)]
-        for i in range(0, len(titles), 20):
-            todo.append(("pages", titles[i:i + 20]))
-    return todo
-
-def crawl(fetcher, args):
-    with open(_manifest_path(args), encoding="utf-8") as fh:
-        m = json.load(fh)
-    todo = _outstanding(m, fetcher.cache)
-    total = len(todo)
-    print(f"{total} request units outstanding, ETA about {eta_seconds(total) // 60} min")
-    try:
-        for i, (kind, arg) in enumerate(todo, 1):
-            if kind == "mapping":
-                wiki.mapping(fetcher)
-            elif kind == "bucket":
-                wiki.bucket(fetcher, arg["name"], arg["fields"])
-            else:
-                wiki.pages_wikitext(fetcher, fetcher.cache, arg, refresh=any(t in args.refresh for t in arg))
-            print(f"[{i}/{total}] {kind} done", flush=True)
-    except KeyboardInterrupt:
-        print("interrupted; cache is intact, re-run to resume")
-        return 130
-    return 0
-
-def print_status(args):
-    from .cache import Cache
-    cache = Cache(args.cache)
-    mp = _manifest_path(args)
-    if not os.path.exists(mp):
-        print("no manifest yet; run: python scraper.py plan")
-        return 1
-    with open(mp, encoding="utf-8") as fh:
-        m = json.load(fh)
-    todo = _outstanding(m, cache)
-    print(f"outstanding request units: {len(todo)} (ETA about {eta_seconds(len(todo)) // 60} min)")
-    for g, titles in m["groups"].items():
-        have = sum(1 for t in titles if cache.has("page", t))
-        print(f"  {g}: {have}/{len(titles)} pages cached")
-    return 0
-```
-
-- [ ] **Step 4: Run unit tests, then the live probe (one-time, about 1 minute)**
-
-Run: `cd tools/wiki-scraper && python -m unittest discover -s tests -t . -v` — Expected: PASS.
-Run (contact is the maintainer's own address; do not hardcode it anywhere): `cd tools/wiki-scraper && GPS_SCRAPER_CONTACT=<your email> python scraper.py probe`
-Expected: six sections print real data. Write what you see into `tools/wiki-scraper/NOTES.md`: (a) the actual Bucket names and field names for monsters/shops/items/drops, (b) how coordinates appear in quick guides and NPC pages (the template name and parameters, e.g. `{{Map|x=..|y=..}}` or `{{Locline|...}}`), (c) how the quest page lists rewards and requirements, (d) the fairy ring list format. If a bucket or field name differs, fix `DEFAULT_BUCKETS` before continuing. If a transport/training page title returned MISSING, replace it in `DEFAULT_PAGES` with the correct title (look it up through `action=query&list=search`, which is one extra cached request).
-
-- [ ] **Step 5: Plan and START THE CRAWL (background, leave it running)**
-
-Run: `cd tools/wiki-scraper && GPS_SCRAPER_CONTACT=<your email> python scraper.py plan && python scraper.py status`
-Then start in the background: `cd tools/wiki-scraper && GPS_SCRAPER_CONTACT=<your email> python scraper.py crawl > crawl.log 2>&1` (use `run_in_background`).
-Expected: status shows the outstanding units and an ETA of roughly 20-40 minutes (about 10 request units per 20 quick guides group times about 8 s). The crawl is resumable: if it stops, re-run the same command. Continue with Task 5 while it runs; check progress with `python scraper.py status`.
-
-No commit (local-only).
+Probe, manifest and crawl: owned by the scraper agent, already in progress. Before starting Task 7/8/9, check with it (or inspect the cache) that quest pages, quick guides and the NPC/object pages for the link targets (Task 12) have been fetched; the transforms below can be written and unit-tested against synthetic fixtures meanwhile.
 
 ### Task 5: Shared wikitext helpers
 
 **Files:**
-- Create: `tools/wiki-scraper/gps_scraper/wikitext.py`
-- Test: `tools/wiki-scraper/tests/test_wikitext.py`
+- Create: `tools/wiki-scraper/gps_process/wikitext.py`
+- Test: `tools/wiki-scraper/gps_process/tests/test_wikitext.py`
 
 **Interfaces:**
 - Produces:
@@ -842,7 +233,7 @@ No commit (local-only).
 ```python
 # tests/test_wikitext.py
 import unittest
-from gps_scraper import wikitext as w
+from gps_process import wikitext as w
 
 class WikitextTests(unittest.TestCase):
     def test_links(self):
@@ -877,12 +268,12 @@ class WikitextTests(unittest.TestCase):
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `cd tools/wiki-scraper && python -m unittest tests.test_wikitext -v` — Expected: ImportError.
+Run: `cd tools/wiki-scraper && python -m unittest gps_process.tests.test_wikitext -v` — Expected: ImportError.
 
 - [ ] **Step 3: Implement**
 
 ```python
-# gps_scraper/wikitext.py
+# gps_process/wikitext.py
 import re
 
 SKILLS = {n: n.upper() for n in [
@@ -990,31 +381,30 @@ def tables(text):
 
 - [ ] **Step 4: Run tests**
 
-Run: `cd tools/wiki-scraper && python -m unittest tests.test_wikitext -v` — Expected: PASS. Fix any regex edge until green (the `templates` named-arg detection is the likeliest).
+Run: `cd tools/wiki-scraper && python -m unittest gps_process.tests.test_wikitext -v` — Expected: PASS. Fix any regex edge until green (the `templates` named-arg detection is the likeliest).
 
 No commit (local-only).
 
 ### Task 6: Build `items.json` and `monsters.json`
 
 **Files:**
-- Create: `tools/wiki-scraper/gps_scraper/build_items.py`, `build_monsters.py`, `tools/wiki-scraper/gps_scraper/build.py` (orchestrator, extended by later tasks)
-- Test: `tools/wiki-scraper/tests/test_build_items_monsters.py`
+- Create: `tools/wiki-scraper/gps_process/build_items.py`, `build_monsters.py`, `tools/wiki-scraper/gps_process/build.py` (orchestrator, extended by later tasks)
+- Test: `tools/wiki-scraper/gps_process/tests/test_build_items_monsters.py`
 
 **Interfaces:**
-- Consumes: cache namespaces `mapping` (key `mapping`), `bucket` (keys `<name>|None|<offset>`); `Cache.get`.
+- Consumes: `RawCache` (Task 1): `mapping()`, `bucket_rows(name)`, `pages()`.
 - Produces:
   - `build_monsters(rows: list[dict]) -> dict` — pure, returns the `monsters.json` object (contract above). Bucket rows are the dicts from `wiki.bucket`; parsing uses the field names recorded in NOTES.md (default names from `DEFAULT_BUCKETS`). Rows with no numeric hitpoints are skipped. `id` may be a JSON-list string `"[2790,2791]"` or a single value.
   - `build_items(mapping_rows, shop_rows, bonus_rows, drop_rows) -> dict` — pure, returns the `items.json` object.
-  - `load_bucket_rows(cache, name) -> list[dict]` — concatenates all cached offset pages `name|None|0`, `|500`, ... until one is missing.
-  - `build.build_all(args) -> int` — loads the cache, calls every `build_*` that exists, writes outputs into `args.out` atomically, returns 0.
+  - `build.build_all(args) -> int` — opens `RawCache.open(args.raw)`, calls every `build_*` that exists, writes outputs into `args.out` atomically, returns 0.
 
 - [ ] **Step 1: Failing tests**
 
 ```python
 # tests/test_build_items_monsters.py
 import unittest
-from gps_scraper.build_monsters import build_monsters
-from gps_scraper.build_items import build_items
+from gps_process.build_monsters import build_monsters
+from gps_process.build_items import build_items
 
 class MonsterTests(unittest.TestCase):
     def test_basic_monster_and_skip_invalid(self):
@@ -1048,12 +438,12 @@ class ItemTests(unittest.TestCase):
         self.assertIsNone(out["items"][0]["teleport"])
 ```
 
-- [ ] **Step 2: Run to verify failure** — `cd tools/wiki-scraper && python -m unittest tests.test_build_items_monsters -v` — Expected: ImportError.
+- [ ] **Step 2: Run to verify failure** — `cd tools/wiki-scraper && python -m unittest gps_process.tests.test_build_items_monsters -v` — Expected: ImportError.
 
 - [ ] **Step 3: Implement**
 
 ```python
-# gps_scraper/build_monsters.py
+# gps_process/build_monsters.py
 import re
 
 def _int(v, default=None):
@@ -1094,7 +484,7 @@ def build_monsters(rows):
 ```
 
 ```python
-# gps_scraper/build_items.py
+# gps_process/build_items.py
 from .build_monsters import _int
 
 def build_items(mapping_rows, shop_rows, bonus_rows, drop_rows):
@@ -1123,21 +513,9 @@ def build_items(mapping_rows, shop_rows, bonus_rows, drop_rows):
 ```
 
 ```python
-# gps_scraper/build.py
+# gps_process/build.py
 import json, os
-from .cache import Cache
-
-def load_bucket_rows(cache, name):
-    rows, offset = [], 0
-    while True:
-        rec = cache.get("bucket", f"{name}|None|{offset}")
-        if rec is None:
-            return rows
-        page = json.loads(rec["body"]).get("bucket", [])
-        rows += page
-        if len(page) < 500:
-            return rows
-        offset += 500
+from .rawcache import RawCache
 
 def write_json(out_dir, name, obj):
     os.makedirs(out_dir, exist_ok=True)
@@ -1147,16 +525,15 @@ def write_json(out_dir, name, obj):
     os.replace(path + ".tmp", path)
 
 def build_all(args):
-    cache = Cache(args.cache)
+    cache = RawCache.open(args.raw)
     from .build_monsters import build_monsters
     from .build_items import build_items
     counts = {}
-    rec = cache.get("mapping", "mapping")
-    mapping_rows = json.loads(rec["body"]) if rec else []
-    mon = build_monsters(load_bucket_rows(cache, "infobox_monster"))
+    mapping_rows = cache.mapping()
+    mon = build_monsters(cache.bucket_rows("infobox_monster"))
     write_json(args.out, "monsters.json", mon); counts["monsters"] = len(mon["monsters"])
-    items = build_items(mapping_rows, load_bucket_rows(cache, "storeline"),
-                        load_bucket_rows(cache, "infobox_bonuses"), load_bucket_rows(cache, "dropsline"))
+    items = build_items(mapping_rows, cache.bucket_rows("storeline"),
+                        cache.bucket_rows("infobox_bonuses"), cache.bucket_rows("dropsline"))
     write_json(args.out, "items.json", items); counts["items"] = len(items["items"])
     print("built", counts)
     return 0
@@ -1164,15 +541,15 @@ def build_all(args):
 
 Note: after the crawl, if the real bucket rows have a different shape than the tests (NOTES.md from Task 4), adjust the field lookups here and add a test row mirroring the real shape.
 
-- [ ] **Step 4: Run tests** — `cd tools/wiki-scraper && python -m unittest tests.test_build_items_monsters -v` — Expected: PASS.
+- [ ] **Step 4: Run tests** — `cd tools/wiki-scraper && python -m unittest gps_process.tests.test_build_items_monsters -v` — Expected: PASS.
 
 No commit (local-only).
 
 ### Task 7: Build quest definitions (requirements, rewards)
 
 **Files:**
-- Create: `tools/wiki-scraper/gps_scraper/build_quests.py`
-- Test: `tools/wiki-scraper/tests/test_build_quests.py`, fixtures `tests/fixtures/cooks_assistant.wikitext`, `tests/fixtures/quest_requirements_sample.json`
+- Create: `tools/wiki-scraper/gps_process/build_quests.py`
+- Test: `tools/wiki-scraper/gps_process/tests/test_build_quests.py`, fixtures `tests/fixtures/cooks_assistant.wikitext`, `tests/fixtures/quest_requirements_sample.json`
 
 **Interfaces:**
 - Consumes: `wikitext.sections/strip_markup/links/SKILLS`; page wikitext from cache ns `page`; the repo file `src/main/resources/com/chunkblazer/quest_requirements.json` (read from disk, path passed in).
@@ -1199,7 +576,7 @@ No commit (local-only).
 ```python
 # tests/test_build_quests.py
 import os, unittest
-from gps_scraper import build_quests as bq
+from gps_process import build_quests as bq
 
 FIX = os.path.join(os.path.dirname(__file__), "fixtures")
 
@@ -1239,12 +616,12 @@ class QuestTests(unittest.TestCase):
         self.assertEqual(q["rewards"]["xp"], {})
 ```
 
-- [ ] **Step 2: Run to verify failure** — `cd tools/wiki-scraper && python -m unittest tests.test_build_quests -v` — Expected: ImportError.
+- [ ] **Step 2: Run to verify failure** — `cd tools/wiki-scraper && python -m unittest gps_process.tests.test_build_quests -v` — Expected: ImportError.
 
 - [ ] **Step 3: Implement**
 
 ```python
-# gps_scraper/build_quests.py
+# gps_process/build_quests.py
 import re
 from . import wikitext as w
 
@@ -1305,15 +682,15 @@ def build_quest(title, wikitext, fallback):
             "rewards": parse_rewards(wikitext), "steps": []}
 ```
 
-- [ ] **Step 4: Run tests** — `cd tools/wiki-scraper && python -m unittest tests.test_build_quests -v` — Expected: PASS. Then compare one real cached quest page (from `status`-confirmed cache) against NOTES.md; if the real Rewards/Requirements format differs, add a fixture line copied in shape (retyped, not pasted) and extend the regexes until the new test passes.
+- [ ] **Step 4: Run tests** — `cd tools/wiki-scraper && python -m unittest gps_process.tests.test_build_quests -v` — Expected: PASS. Then compare one real cached quest page (from `status`-confirmed cache) against NOTES.md; if the real Rewards/Requirements format differs, add a fixture line copied in shape (retyped, not pasted) and extend the regexes until the new test passes.
 
 No commit (local-only).
 
 ### Task 8: Quest steps from quick guides, with location resolution
 
 **Files:**
-- Create: `tools/wiki-scraper/gps_scraper/build_steps.py`
-- Test: `tools/wiki-scraper/tests/test_build_steps.py`
+- Create: `tools/wiki-scraper/gps_process/build_steps.py`
+- Test: `tools/wiki-scraper/gps_process/tests/test_build_steps.py`
 
 **Interfaces:**
 - Consumes: `wikitext.templates/links/strip_markup/sections`; locations index (Task 9 output shape: dict name -> `{"x","y","plane"}`); `quest_requirements.json` `chunks` list for chunk-centre fallback; overrides dict `quest_step_overrides.json` shape.
@@ -1328,7 +705,7 @@ No commit (local-only).
 ```python
 # tests/test_build_steps.py
 import unittest
-from gps_scraper import build_steps as bs
+from gps_process import build_steps as bs
 
 GUIDE = """==Quick guide==
 * Talk to [[Cook]] in [[Lumbridge Castle]] {{Map|x=3208|y=3214|plane=0}}
@@ -1389,12 +766,12 @@ class StepTests(unittest.TestCase):
 
 (12850 = 0x3232 = 50<<8 | 50, so both coordinates are 50.)
 
-- [ ] **Step 2: Run to verify failure** — `cd tools/wiki-scraper && python -m unittest tests.test_build_steps -v` — Expected: ImportError.
+- [ ] **Step 2: Run to verify failure** — `cd tools/wiki-scraper && python -m unittest gps_process.tests.test_build_steps -v` — Expected: ImportError.
 
 - [ ] **Step 3: Implement**
 
 ```python
-# gps_scraper/build_steps.py
+# gps_process/build_steps.py
 import re
 from . import wikitext as w
 
@@ -1473,15 +850,15 @@ def attach_steps(quest, guide, locations, overrides, quest_chunks):
 
 Note on `test_resolution_ladder`: step 1's link "Bucket" is not in LOCS, "Dairy cow" is, so NAMED_LINK; step 2 ("Mill Lane Mill") is unknown so it carries step 1's location. A step with `source: NONE` has `x: None`; Task 13's Java DTO must treat null `x` as "no location".
 
-- [ ] **Step 4: Run tests** — `cd tools/wiki-scraper && python -m unittest tests.test_build_steps -v` — Expected: PASS. Then check against one real cached quick guide (see NOTES.md for its real bullet/template style) and add a test fixture shaped like it if the format differs.
+- [ ] **Step 4: Run tests** — `cd tools/wiki-scraper && python -m unittest gps_process.tests.test_build_steps -v` — Expected: PASS. Then check against one real cached quick guide (see NOTES.md for its real bullet/template style) and add a test fixture shaped like it if the format differs.
 
 No commit (local-only).
 
 ### Task 9: Build `locations.json`
 
 **Files:**
-- Create: `tools/wiki-scraper/gps_scraper/build_locations.py`
-- Test: `tools/wiki-scraper/tests/test_build_locations.py`
+- Create: `tools/wiki-scraper/gps_process/build_locations.py`
+- Test: `tools/wiki-scraper/gps_process/tests/test_build_locations.py`
 
 **Interfaces:**
 - Consumes: cache pages for group `locations` and Bucket rows if NOTES.md identified a coordinate-bearing bucket; `wikitext.templates`.
@@ -1495,7 +872,7 @@ No commit (local-only).
 ```python
 # tests/test_build_locations.py
 import unittest
-from gps_scraper.build_locations import locations_from_pages, merge_overrides, build_locations
+from gps_process.build_locations import locations_from_pages, merge_overrides, build_locations
 
 class LocTests(unittest.TestCase):
     def test_entry_from_map_template(self):
@@ -1517,12 +894,12 @@ class LocTests(unittest.TestCase):
         self.assertEqual(build_locations({}, {})["schema"], 1)
 ```
 
-- [ ] **Step 2: Run to verify failure** — `cd tools/wiki-scraper && python -m unittest tests.test_build_locations -v` — Expected: ImportError.
+- [ ] **Step 2: Run to verify failure** — `cd tools/wiki-scraper && python -m unittest gps_process.tests.test_build_locations -v` — Expected: ImportError.
 
 - [ ] **Step 3: Implement**
 
 ```python
-# gps_scraper/build_locations.py
+# gps_process/build_locations.py
 from . import wikitext as w
 from .build_steps import COORD_TEMPLATES
 
@@ -1560,15 +937,15 @@ def build_locations(pages, overrides):
     return {"schema": 1, "entries": merge_overrides(locations_from_pages(pages), overrides)}
 ```
 
-- [ ] **Step 4: Run tests** — PASS. The crawl must include NPC/object/place pages the quick guides link to for `NAMED_LINK` resolution to hit; Task 12 adds a second-phase `plan --from-guides` that appends every link target found in cached quick guides to the `locations` group (bulk, 20/request) so a second short crawl covers them. Note that need in NOTES.md.
+- [ ] **Step 4: Run tests** — PASS. `NAMED_LINK` resolution only hits if the NPC/object/place pages the quick guides link to are in the raw cache; Task 12 emits that list of link targets (`link_targets.txt`) for the fetch agent to crawl. Note that need in `gps_process/NOTES.md`.
 
 No commit (local-only).
 
 ### Task 10: Build `transport.json` (seed + parsed tables)
 
 **Files:**
-- Create: `tools/wiki-scraper/gps_scraper/build_transport.py`
-- Test: `tools/wiki-scraper/tests/test_build_transport.py`
+- Create: `tools/wiki-scraper/gps_process/build_transport.py`
+- Test: `tools/wiki-scraper/gps_process/tests/test_build_transport.py`
 
 **Interfaces:**
 - Consumes: `wikitext.tables`; locations index (name -> tile); `transport_seed.json` (same shape as `transport.json`).
@@ -1582,7 +959,7 @@ No commit (local-only).
 ```python
 # tests/test_build_transport.py
 import unittest
-from gps_scraper.build_transport import fairy_ring_edges, merge_seed, build_transport
+from gps_process.build_transport import fairy_ring_edges, merge_seed, build_transport
 
 PAGE = "{|\n! Code !! Location\n|-\n| AIQ || Asgarnian Ice Dungeon\n|-\n| ZZZ || Nowhere Known\n|}"
 LOCS = {"Asgarnian Ice Dungeon": {"x": 3010, "y": 9560, "plane": 0}}
@@ -1605,12 +982,12 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(out, {"schema": 1, "edges": []})
 ```
 
-- [ ] **Step 2: Run to verify failure** — `cd tools/wiki-scraper && python -m unittest tests.test_build_transport -v` — Expected: ImportError.
+- [ ] **Step 2: Run to verify failure** — `cd tools/wiki-scraper && python -m unittest gps_process.tests.test_build_transport -v` — Expected: ImportError.
 
 - [ ] **Step 3: Implement**
 
 ```python
-# gps_scraper/build_transport.py
+# gps_process/build_transport.py
 from . import wikitext as w
 
 def fairy_ring_edges(page, locations):
@@ -1647,8 +1024,8 @@ No commit (local-only).
 ### Task 11: Build `training_methods.json`
 
 **Files:**
-- Create: `tools/wiki-scraper/gps_scraper/build_training.py`
-- Test: `tools/wiki-scraper/tests/test_build_training.py`
+- Create: `tools/wiki-scraper/gps_process/build_training.py`
+- Test: `tools/wiki-scraper/gps_process/tests/test_build_training.py`
 
 **Interfaces:**
 - Consumes: `wikitext.tables/strip_markup/SKILLS`; pages group `training`.
@@ -1663,7 +1040,7 @@ No commit (local-only).
 ```python
 # tests/test_build_training.py
 import unittest
-from gps_scraper.build_training import parse_level_range, parse_xp_hr, methods_from_page, build_training
+from gps_process.build_training import parse_level_range, parse_xp_hr, methods_from_page, build_training
 
 class TrainingTests(unittest.TestCase):
     def test_level_range(self):
@@ -1690,12 +1067,12 @@ class TrainingTests(unittest.TestCase):
         self.assertEqual(build_training({"Woodcutting training": None}), {"schema": 1, "methods": []})
 ```
 
-- [ ] **Step 2: Run to verify failure** — `cd tools/wiki-scraper && python -m unittest tests.test_build_training -v` — Expected: ImportError.
+- [ ] **Step 2: Run to verify failure** — `cd tools/wiki-scraper && python -m unittest gps_process.tests.test_build_training -v` — Expected: ImportError.
 
 - [ ] **Step 3: Implement**
 
 ```python
-# gps_scraper/build_training.py
+# gps_process/build_training.py
 import re
 from . import wikitext as w
 
@@ -1750,24 +1127,24 @@ No commit (local-only).
 ### Task 12: Wire `build`, validation report, `data_version.json`
 
 **Files:**
-- Modify: `tools/wiki-scraper/gps_scraper/build.py` (call every builder), `cli.py` (already routes `validate`)
-- Create: `tools/wiki-scraper/gps_scraper/validate.py`
-- Test: `tools/wiki-scraper/tests/test_validate.py`
+- Modify: `tools/wiki-scraper/gps_process/build.py` (call every builder)
+- Create: `tools/wiki-scraper/gps_process/validate.py`
+- Test: `tools/wiki-scraper/gps_process/tests/test_validate.py`
 
-**Interfaces:**
+- Consumes: all `build_*` functions and `RawCache`.
 - Consumes: all `build_*` functions and `load_bucket_rows`.
 - Produces:
-  - `build.build_all(args)` now also reads cached pages (`Cache.keys("page")` yields `(title, record)`), `quest_requirements.json` (path `<repo>/src/main/resources/com/chunkblazer/quest_requirements.json`, found relative to the script dir), overrides from `<out>/overrides/*.json` (missing = `{}`), builds locations first, then quests+steps, transport, training, writes `quests.json`, `transport.json`, `locations.json`, `training_methods.json`, and `data_version.json`.
+  - `build.build_all(args)` now also reads cached pages (`RawCache.pages()`), `quest_requirements.json` (path `<repo>/src/main/resources/com/chunkblazer/quest_requirements.json`, found relative to the script dir), overrides from `<out>/overrides/*.json` (missing = `{}`), builds locations first, then quests+steps, transport, training, writes `quests.json`, `transport.json`, `locations.json`, `training_methods.json`, and `data_version.json`.
   - `validate.report(out_dir: str) -> dict` — `{"files_missing": [...], "counts": {...}, "quests_without_steps": [...], "unresolved_quest_steps": int, "approximate_quest_steps": int, "monsters_without_ids": int}`.
+  - `link_targets(cache) -> list[str]` (see below): quick-guide link targets not yet in the raw cache, written to `link_targets.txt` for the fetch agent.
   - `validate.run(args) -> int` prints the report; exit 1 if any core file (`monsters.json`, `items.json`, `quests.json`, `transport.json`, `locations.json`) is missing or `quests_without_steps` is larger than 25 percent of quests.
-  - `plan --from-guides` option: appends every link target found in cached quick guides (not already cached) to the `locations` group in `manifest.json` (so one more short crawl fetches NPC/object pages); implement as `manifest.add_guide_links(cache, manifest) -> int`.
 
 - [ ] **Step 1: Failing tests**
 
 ```python
 # tests/test_validate.py
 import json, os, tempfile, unittest
-from gps_scraper import validate
+from gps_process import validate
 
 def write(d, name, obj):
     with open(os.path.join(d, name), "w", encoding="utf-8") as fh: json.dump(obj, fh)
@@ -1796,12 +1173,12 @@ class ValidateTests(unittest.TestCase):
             self.assertIn("items.json", validate.report(d)["files_missing"])
 ```
 
-- [ ] **Step 2: Run to verify failure** — `cd tools/wiki-scraper && python -m unittest tests.test_validate -v` — Expected: ImportError.
+- [ ] **Step 2: Run to verify failure** — `cd tools/wiki-scraper && python -m unittest gps_process.tests.test_validate -v` — Expected: ImportError.
 
 - [ ] **Step 3: Implement `validate.py`, extend `build_all`, add `add_guide_links`**
 
 ```python
-# gps_scraper/validate.py
+# gps_process/validate.py
 import json, os
 
 CORE = ["monsters.json", "items.json", "quests.json", "transport.json", "locations.json"]
@@ -1840,28 +1217,27 @@ def run(args):
     return 1 if bad else 0
 ```
 
-In `build.py`, extend `build_all` (after the existing monsters/items lines) with: read all cached pages into `pages = {title: rec.get("wikitext")}` via `cache.keys("page")`; load `locations_overrides`, `step_overrides`, `transport_seed` from `<out>/overrides/`; `locs = build_locations(pages_for_group, overrides)`; `loc_index = {e["name"]: e for e in locs["entries"]}`; for every title in the manifest `quests` group: `q = build_quest(title, pages.get(title) or "", fallback)` with `fallback = quest_requirements.get(quest_enum_id(title))`, `attach_steps(q, pages.get(title + "/Quick guide"), loc_index, step_overrides.get(q["id"], {}), (fallback or {}).get("chunks", []))`; write `quests.json`, `transport.json` (`build_transport(pages, loc_index, seed)`), `locations.json`, `training_methods.json`; finally write `data_version.json` with `data_version = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())`, the counts, and `unresolved_quest_steps` from `validate.report`. Keep each writer through `write_json`. Add to `manifest.py`:
+In `build.py`, extend `build_all` (after the existing monsters/items lines) with: `pages = cache.pages()`; load `location_overrides`, `step_overrides`, `transport_seed` from `<out>/overrides/` (missing = empty); `locs = build_locations(pages, location_overrides)`; `loc_index = {e["name"]: e for e in locs["entries"]}`; quest titles = every page title `T` such that `T + "/Quick guide"` is in `pages` or `T` appears in `quest_requirements.json` by `quest_enum_id`; for each: `q = build_quest(title, pages.get(title) or "", fallback)` with `fallback = quest_requirements.get(quest_enum_id(title))`, then `attach_steps(q, pages.get(title + "/Quick guide"), loc_index, step_overrides.get(q["id"], {}), (fallback or {}).get("chunks", []))`; write `quests.json`, `transport.json` (`build_transport(pages, loc_index, seed)`), `locations.json`, `training_methods.json`; finally write `data_version.json` with `data_version = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())`, the counts, and `unresolved_quest_steps` from `validate.report`. Keep each writer through `write_json`. Also write `link_targets.txt` into the raw-cache parent's `gps_process/` working dir (not into the data dir): `link_targets(cache) -> list[str]`, one title per line, for the fetch agent:
 
 ```python
-def add_guide_links(cache, m):
+def link_targets(cache):
     from . import wikitext as w
-    known = set(m["groups"].get("locations", []))
-    new = []
-    for title, rec in cache.keys("page"):
-        if title.endswith(QUICK_GUIDE_SUFFIX) and rec.get("wikitext"):
-            for l in w.links(rec["wikitext"]):
-                if l not in known and not cache.has("page", l):
-                    known.add(l); new.append(l)
-    m["groups"]["locations"] = m["groups"].get("locations", []) + new
-    return len(new)
+    have = set(cache.titles())
+    out = []
+    for title, text in cache.pages().items():
+        if text and title.endswith("/Quick guide"):
+            for l in w.links(text):
+                if l not in have and l not in out:
+                    out.append(l)
+    return out
 ```
 
-and in `plan(...)`: if `--from-guides` (add `p.add_argument("--from-guides", action="store_true")` in `cli.parse`), load the existing manifest instead of discovering, call `add_guide_links`, rewrite it.
+(`link_targets` has its own test in `test_validate.py`: a quick-guide fixture linking to `Cook` and to an already-cached page returns only `Cook`, once.) Hand `link_targets.txt` to the fetch agent as an extra page group to crawl (bulk, 20 per request, rate limit as usual); after it finishes, re-run `build`.
 
 - [ ] **Step 4: Run all tests, then the real build**
 
-Run: `cd tools/wiki-scraper && python -m unittest discover -s tests -t . -v` — Expected: PASS.
-When `python scraper.py status` shows the first crawl finished: run `python scraper.py plan --from-guides`, then `crawl` again (short, covers linked NPC/object pages), then `python scraper.py build && python scraper.py validate`.
+Run: `cd tools/wiki-scraper && python -m unittest discover -s gps_process/tests -t . -v` — Expected: PASS.
+When the fetch agent reports the crawl finished (confirm quest pages, quick guides and linked pages are in the raw cache): run `python process.py build && python process.py validate`, hand `link_targets.txt` to the fetch agent for a short second crawl, then `build` again.
 Expected: files appear under `~/.runelite/chunkblazer/gps-data/`, `validate` prints counts and exits 0. Review the `quests_without_steps` and `unresolved_quest_steps` numbers; fix the parsers (with a new failing test per fix) or add `overrides/quest_step_overrides.json` entries until they are acceptable. Confirm with `git status` that nothing from `tools/` or the data dir shows up.
 
 No commit (local-only).
@@ -2251,6 +1627,6 @@ Claude-Session: https://claude.ai/code/session_012VxiTXtLm6RdwSLxuoXrKC"
 
 ## Self-Review
 
-- Spec coverage: section 4 (local-only, cache, rate limit, UA, bulk, outputs, overrides) -> Tasks 1-12; 5.1 degradation -> Tasks 13-14; 5.2 quest steps + location ladder -> Tasks 7-8 (+9 locations, 12 `--from-guides`); items/monsters/transport/training -> Tasks 6, 10, 11. Quest-step data for interleaving is produced here; the planner consumes it in M4.
-- Early crawl: Tasks 1-4 produce a runnable, rate-limited, cached scraper and start the crawl before any transform exists.
-- Known soft spots, deliberately handled by in-plan verification instead of guessing: real Bucket field names, coordinate template names, quest reward/requirement markup, and fairy-ring table format are confirmed during the Task 4 probe and recorded in NOTES.md; Tasks 6-11 each end by checking one real cached page and adding a fixture-shaped test if the format differs.
+- Spec coverage: section 4 (local-only, outputs, overrides; the cache, rate limit, UA and bulk rules are enforced by the existing fetch layer) -> Tasks 1-12; 5.1 degradation -> Tasks 13-14; 5.2 quest steps + location ladder -> Tasks 7-8 (+9 locations, 12 link-target list); items/monsters/transport/training -> Tasks 6, 10, 11. Quest-step data for interleaving is produced here; the planner consumes it in M4.
+- Early crawl: already satisfied by the separately owned fetch layer; this plan only reads its cache (Task 1) and asks it for any missing pages.
+- Known soft spots, deliberately handled by in-plan verification instead of guessing: real Bucket field names, coordinate template names, quest reward/requirement markup, and fairy-ring table format are confirmed with the fetch agent and by inspecting the real cache in Task 1, and recorded in gps_process/NOTES.md; Tasks 6-11 each end by checking one real cached page and adding a fixture-shaped test if the format differs.

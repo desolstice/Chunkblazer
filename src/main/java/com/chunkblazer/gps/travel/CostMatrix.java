@@ -334,12 +334,13 @@ public final class CostMatrix
 		return i == null ? -1 : i;
 	}
 
+	/** True when cost(i, j) is finite. Throws on out-of-range indices. */
 	public boolean isReachable(int i, int j)
 	{
 		return cost[i][j] < INF;
 	}
 
-	/** The usable edges (with their acquisitions) on the cheapest i to j trip, in travel order. */
+	/** The usable edges (with their acquisitions) on the cheapest i to j trip, in travel order. Throws on out-of-range indices. */
 	public List<UsableEdge> routeEdges(int i, int j)
 	{
 		List<UsableEdge> out = new ArrayList<>();

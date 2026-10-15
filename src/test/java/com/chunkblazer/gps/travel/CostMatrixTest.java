@@ -37,6 +37,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
 
@@ -143,7 +144,7 @@ class CostMatrixTest
 		assertEquals(1, tele.routeEdges(0, 1).size());
 		assertEquals("tele", tele.routeEdges(0, 1).get(0).getEdge().getId());
 		assertTrue(tele.isReachable(0, 1));
-		assertTrue(!build(null, false).isReachable(0, 1));
+		assertFalse(build(null, false).isReachable(0, 1));
 	}
 
 	@Test

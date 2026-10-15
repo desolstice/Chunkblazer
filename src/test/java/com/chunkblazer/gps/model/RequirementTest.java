@@ -112,7 +112,7 @@ class RequirementTest
 		List<Missing> m = r.missing(PlayerState.freshAccount());
 		assertEquals(1, m.size());
 		assertEquals(Missing.Kind.MAX_HIT, m.get(0).getKind());
-		assertEquals("Max hit 24 (you have 0)", m.get(0).getText());
+		assertEquals("Max hit 24 (you have 1)", m.get(0).getText());
 		assertTrue(r.missing(PlayerState.builder().maxHit(24).build()).isEmpty());
 	}
 

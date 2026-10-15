@@ -74,9 +74,31 @@ class LocationResolverTest
 	}
 
 	@Test
+	void targetFarFromTheHomeChunkIsIgnoredSoTheTaskStaysInItsChunk()
+	{
+		// "Farmer" spawns only in Kastori (x 1382): a task homed in Lumbridge cannot be done there
+		GpsData d = dataWith("{\"schema\":1,\"entries\":[{\"name\":\"Farmer\",\"kind\":\"NPC\",\"ids\":[6959],\"x\":1382,\"y\":3068,\"plane\":0}]}");
+		ResolvedLocation byId = resolver(d).forTask(task("{\"name\":\"p\",\"taskID\":\"p\",\"completion_type\":\"THIEVING\",\"target_npc\":{\"npc\":[\"Farmer\"],\"npc_ids\":[6959],\"quantity\":[1]}}"), 12850);
+		assertEquals("CHUNK_CENTRE", byId.getSource());
+		assertTrue(byId.isApproximate());
+		assertEquals(TileMath.centre(12850), byId.getTile());
+		ResolvedLocation byName = resolver(d).forTask(task("{\"name\":\"p\",\"taskID\":\"p\",\"completion_type\":\"THIEVING\",\"target_npc\":{\"npc\":[\"Farmer\"],\"npc_ids\":[1],\"quantity\":[1]}}"), 12850);
+		assertEquals("CHUNK_CENTRE", byName.getSource());
+	}
+
+	@Test
+	void nearestMatchWithinRangeStillWinsOverAFarOne()
+	{
+		GpsData d = dataWith("{\"schema\":1,\"entries\":[{\"name\":\"Cow\",\"kind\":\"NPC\",\"ids\":[2790],\"x\":1382,\"y\":3068,\"plane\":0},"
+			+ "{\"name\":\"Cow\",\"kind\":\"NPC\",\"ids\":[2790],\"x\":3253,\"y\":3270,\"plane\":0}]}");
+		ResolvedLocation l = resolver(d).forTask(task("{\"name\":\"k\",\"taskID\":\"k\",\"completion_type\":\"NPC_KILL\",\"target_npc\":{\"npc\":[\"Cow\"],\"npc_ids\":[2790],\"quantity\":[1]}}"), 12850);
+		assertEquals(3253, (int) l.getTile().getX());
+	}
+
+	@Test
 	void nameMatchStripsVariantSuffix()
 	{
-		GpsData d = dataWith("{\"schema\":1,\"entries\":[{\"name\":\"Desert Lizard\",\"kind\":\"NPC\",\"ids\":[],\"x\":3400,\"y\":3000,\"plane\":0}]}");
+		GpsData d = dataWith("{\"schema\":1,\"entries\":[{\"name\":\"Desert Lizard\",\"kind\":\"NPC\",\"ids\":[],\"x\":3400,\"y\":3100,\"plane\":0}]}");
 		ResolvedLocation l = resolver(d).forTask(task("{\"name\":\"Lizard\",\"taskID\":\"l\",\"completion_type\":\"NPC_KILL\",\"target_npc\":{\"npc\":[\"desert lizard#Yellow\"],\"npc_ids\":[460],\"quantity\":[1]}}"), 12850);
 		assertEquals("NAME", l.getSource());
 		assertEquals(3400, (int) l.getTile().getX());

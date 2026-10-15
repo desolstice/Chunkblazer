@@ -25,6 +25,8 @@
  */
 package com.chunkblazer.gps.model;
 
+import com.chunkblazer.gps.combat.CombatStats;
+import com.chunkblazer.gps.combat.MaxHitCalculator;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -45,6 +47,7 @@ public final class PlayerState
 	private final Set<Integer> chunks;
 	private final Set<String> unlocks;
 	private final int maxHit;
+	private final boolean maxHitExplicit;
 	private final int taskPoints;
 
 	private PlayerState(Builder b)
@@ -57,7 +60,8 @@ public final class PlayerState
 		this.items = Collections.unmodifiableMap(new HashMap<>(b.items));
 		this.chunks = Collections.unmodifiableSet(new HashSet<>(b.chunks));
 		this.unlocks = Collections.unmodifiableSet(new HashSet<>(b.unlocks));
-		this.maxHit = b.maxHit;
+		this.maxHitExplicit = b.maxHitExplicit;
+		this.maxHit = b.maxHitExplicit ? b.maxHit : derivedMaxHit(this.levels);
 		this.taskPoints = b.taskPoints;
 	}
 
@@ -83,8 +87,22 @@ public final class PlayerState
 		b.chunks.addAll(chunks);
 		b.unlocks.addAll(unlocks);
 		b.maxHit = maxHit;
+		b.maxHitExplicit = maxHitExplicit;
 		b.taskPoints = taskPoints;
 		return b;
+	}
+
+	/**
+	 * Level-only, ungeared lower bound (best of melee and ranged at the account's levels, base level 1), so an unset
+	 * max hit is never 0: a level 1 account hits for at least 1.
+	 */
+	private static int derivedMaxHit(Map<String, Integer> levels)
+	{
+		CombatStats stats = CombatStats.builder()
+			.strength(levels.getOrDefault("STRENGTH", 1))
+			.ranged(levels.getOrDefault("RANGED", 1))
+			.build();
+		return Math.max(1, MaxHitCalculator.best(stats));
 	}
 
 	private static int defaultLevel(String skill)
@@ -236,6 +254,7 @@ public final class PlayerState
 		private final Set<Integer> chunks = new HashSet<>();
 		private final Set<String> unlocks = new HashSet<>();
 		private int maxHit;
+		private boolean maxHitExplicit;
 		private int taskPoints;
 
 		private Builder()
@@ -293,6 +312,7 @@ public final class PlayerState
 		public Builder maxHit(int maxHit)
 		{
 			this.maxHit = maxHit;
+			this.maxHitExplicit = true;
 			return this;
 		}
 

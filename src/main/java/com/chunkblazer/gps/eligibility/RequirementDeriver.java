@@ -28,9 +28,11 @@ package com.chunkblazer.gps.eligibility;
 import com.chunkblazer.NuzlockeTask;
 import com.chunkblazer.RequiredItem;
 import com.chunkblazer.TaskConstraints;
+import com.chunkblazer.gps.combat.CombatGate;
 import com.chunkblazer.gps.combat.KillTimeCheck;
 import com.chunkblazer.gps.combat.OneHitCheck;
 import com.chunkblazer.gps.data.GpsData;
+import com.chunkblazer.gps.data.MonsterDef;
 import com.chunkblazer.gps.model.ItemNeed;
 import com.chunkblazer.gps.model.QuestCatalog;
 import com.chunkblazer.gps.model.QuestModel;
@@ -205,7 +207,31 @@ public final class RequirementDeriver
 				b.approximate(true);
 			}
 		}
-		return b.build().merge(fromQuest);
+		return b.build().merge(combatGate(t)).merge(fromQuest);
+	}
+
+	/**
+	 * (9) heuristic combat gate for NPC kills so a fresh account is not sent to bosses: a combat level near the
+	 * monster's, and (when no one-hit or time limit already sets one) a max hit that makes the kill feasible.
+	 */
+	private Requirement combatGate(NuzlockeTask t)
+	{
+		if (t.getCompletionType() == null || !"NPC_KILL".equals(t.getCompletionType().trim().toUpperCase(Locale.ROOT)))
+		{
+			return Requirement.NONE;
+		}
+		Optional<MonsterDef> m = CombatGate.easiestTarget(t, data);
+		if (!m.isPresent())
+		{
+			return Requirement.NONE;
+		}
+		Requirement.Builder g = Requirement.builder().approximate(true);
+		g.combatLevel(CombatGate.requiredCombatLevel(m.get().getCombatLevel()));
+		if (!OneHitCheck.isOneHit(t) && !isTimeLimitedKill(t))
+		{
+			g.minMaxHit(CombatGate.requiredMaxHit(m.get().getHp()));
+		}
+		return g.build();
 	}
 
 	private static boolean isTimeLimitedKill(NuzlockeTask t)

@@ -80,7 +80,7 @@ public final class Planner
 	{
 		final long deadlineNanos = System.nanoTime() + Math.min(Math.max(0L, req.getDeadlineMillis()), 3_600_000L) * 1_000_000L;
 		NodeFactory factory = new NodeFactory(req.getData(), req.getQuests(), req.getDeriver(),
-			new LocationResolver(req.getData(), req.getQuests()), req.getDoneNodeIds());
+			new LocationResolver(req.getData(), req.getQuests()), req.getDoneNodeIds(), req.getState(), req.getStart());
 		PrecedenceGraph graph = new Selector(req, factory).select();
 		List<Plan.Unplannable> unplannable = new ArrayList<>(graph.getUnplannable());
 		String version = req.getData() == null ? null : req.getData().getDataVersion();

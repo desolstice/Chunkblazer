@@ -185,7 +185,8 @@ final class SelectorTestSupport
 
 	NodeFactory factory(PlanRequest r)
 	{
-		return new NodeFactory(r.getData(), r.getQuests(), r.getDeriver(), new LocationResolver(r.getData(), r.getQuests()));
+		return new NodeFactory(r.getData(), r.getQuests(), r.getDeriver(), new LocationResolver(r.getData(), r.getQuests()),
+			r.getDoneNodeIds(), r.getState(), r.getStart());
 	}
 
 	PrecedenceGraph select()

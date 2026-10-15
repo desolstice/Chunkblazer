@@ -78,7 +78,7 @@ public final class OneHitCheck
 		return best > 0 ? OptionalInt.of(best) : OptionalInt.empty();
 	}
 
-	private static boolean matches(MonsterDef m, TargetNpc target, String name)
+	static boolean matches(MonsterDef m, TargetNpc target, String name)
 	{
 		if (target.getNpcIds() != null)
 		{
@@ -93,7 +93,7 @@ public final class OneHitCheck
 		return name != null && m.getName() != null && name.equalsIgnoreCase(m.getName().trim());
 	}
 
-	private static String stripVariant(String name)
+	static String stripVariant(String name)
 	{
 		if (name == null)
 		{

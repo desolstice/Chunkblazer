@@ -46,6 +46,9 @@ import java.util.Optional;
 /** Resolves tasks, quest steps and names to representative tiles. Deterministic and null-tolerant. */
 public final class LocationResolver
 {
+	/** How far (Chebyshev tiles) from its home chunk centre a task's target spawn may be to count as the task's location. */
+	public static final int HOME_RADIUS_TILES = 192;
+
 	private static final ResolvedLocation NONE = new ResolvedLocation(null, true, "NONE");
 
 	private static final Comparator<LocationEntry> TIE = Comparator
@@ -112,7 +115,7 @@ public final class LocationResolver
 						}
 					}
 				}
-				LocationEntry best = closest(hits, home);
+				LocationEntry best = closest(nearHome(hits, home), home);
 				if (best != null)
 				{
 					return fromEntry(best, "NPC_ID");
@@ -120,7 +123,7 @@ public final class LocationResolver
 				String name = stripVariant(npc.getName());
 				if (name != null)
 				{
-					best = closest(byLowerName.get(name.toLowerCase(Locale.ROOT)), home);
+					best = closest(nearHome(byLowerName.get(name.toLowerCase(Locale.ROOT)), home), home);
 					if (best != null)
 					{
 						return fromEntry(best, "NAME");
@@ -141,6 +144,28 @@ public final class LocationResolver
 			}
 		}
 		return new ResolvedLocation(home, true, "CHUNK_CENTRE");
+	}
+
+	/**
+	 * Entries within {@link #HOME_RADIUS_TILES} of the task's home chunk centre. A task can only be done inside its own
+	 * chunk, so a spawn of the target far away (another continent, a dungeon) is not where this task happens, and
+	 * routing to it would make the task look unreachable; those fall back to the chunk centre instead.
+	 */
+	private static List<LocationEntry> nearHome(List<LocationEntry> entries, Tile home)
+	{
+		List<LocationEntry> out = new ArrayList<>();
+		if (entries != null)
+		{
+			for (LocationEntry e : entries)
+			{
+				if (e != null && e.getX() != null && e.getY() != null
+					&& Math.max(Math.abs((long) e.getX() - home.getX()), Math.abs((long) e.getY() - home.getY())) <= HOME_RADIUS_TILES)
+				{
+					out.add(e);
+				}
+			}
+		}
+		return out;
 	}
 
 	public ResolvedLocation forQuestStep(String questId, int stepIndex)
@@ -191,6 +216,36 @@ public final class LocationResolver
 		return new ResolvedLocation(home, true, "CHUNK_CENTRE");
 	}
 
+	/**
+	 * The entry named {@code name} (case-insensitive) or carrying it as a base name ("Tree" matches "Tree (Varrock)"),
+	 * restricted to tiles {@code allowed} accepts and closest to {@code reference} (ties by name, then x, y, plane;
+	 * with no reference the tie order alone decides). Empty when nothing qualifies.
+	 */
+	public Optional<ResolvedLocation> findNamed(String name, java.util.function.Predicate<Tile> allowed, Tile reference)
+	{
+		if (name == null || name.trim().isEmpty())
+		{
+			return Optional.empty();
+		}
+		String base = name.trim().toLowerCase(Locale.ROOT);
+		List<LocationEntry> hits = new ArrayList<>();
+		for (Map.Entry<String, List<LocationEntry>> e : byLowerName.entrySet())
+		{
+			if (e.getKey().equals(base) || e.getKey().startsWith(base + " ("))
+			{
+				for (LocationEntry le : e.getValue())
+				{
+					if (allowed == null || allowed.test(new Tile(le.getX(), le.getY(), le.getPlane(), false, "LOCATIONS")))
+					{
+						hits.add(le);
+					}
+				}
+			}
+		}
+		LocationEntry best = closest(hits, reference != null && reference.isKnown() ? reference : null);
+		return best == null ? Optional.empty() : Optional.of(fromEntry(best, "NAME"));
+	}
+
 	public Optional<ResolvedLocation> nearestBank(Tile from)
 	{
 		// Plane is ignored when ranking banks (approximate model).
@@ -223,7 +278,8 @@ public final class LocationResolver
 				continue;
 			}
 			// Plane is ignored when ranking: approximate model.
-			long d = Math.max(Math.abs((long) e.getX() - ref.getX()), Math.abs((long) e.getY() - ref.getY()));
+			long d = ref == null ? 0
+				: Math.max(Math.abs((long) e.getX() - ref.getX()), Math.abs((long) e.getY() - ref.getY()));
 			if (best == null || d < bestD || (d == bestD && TIE.compare(e, best) < 0))
 			{
 				best = e;

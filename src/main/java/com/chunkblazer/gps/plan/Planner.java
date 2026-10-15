@@ -88,6 +88,7 @@ public final class Planner
 		Map<String, Tile> tiles = new HashMap<>();
 		Set<String> carried = new LinkedHashSet<>();
 		CostMatrix matrix;
+		Set<String> acquiredEdges = Collections.emptySet();
 		while (true)
 		{
 			if (nodes.isEmpty())
@@ -117,6 +118,7 @@ public final class Planner
 			predMap = r.getPreds();
 			order = r.getOrder();
 			matrix = r.getMatrix();
+			acquiredEdges = r.getAcquiredEdgeIds();
 		}
 		final CostMatrix m = matrix;
 
@@ -144,6 +146,7 @@ public final class Planner
 		Map<String, PlanNode> firstDependent = firstDependents(nodes, predMap, plannedIds);
 		List<PlanStep> steps = new ArrayList<>();
 		long total = 0;
+		Set<String> bought = new LinkedHashSet<>();
 		int prev = 0;
 		for (int idx : planned)
 		{
@@ -166,11 +169,34 @@ public final class Planner
 				.missingRequirements(Collections.emptyList())
 				.questId(node.getQuestId())
 				.stepIndex(node.getStepIndex())
-				.viaTransportEdgeIds(m.route(prev, idx))
+				.viaTransportEdgeIds(viaBought(m.route(prev, idx), acquiredEdges, bought))
 				.build());
+			String edge = TeleportAcquirer.acquiredEdgeOf(node);
+			if (edge != null)
+			{
+				bought.add(edge);
+			}
 			prev = idx;
 		}
 		return new Plan(steps, (int) Math.min(total, Integer.MAX_VALUE), unplannable, version);
+	}
+
+	/** Drops acquired edges that are not yet bought at this point of the plan (the replay may have skipped a node). */
+	static List<String> viaBought(List<String> route, Set<String> acquired, Set<String> bought)
+	{
+		if (acquired.isEmpty())
+		{
+			return route;
+		}
+		List<String> out = new ArrayList<>();
+		for (String e : route)
+		{
+			if (!acquired.contains(e) || bought.contains(e))
+			{
+				out.add(e);
+			}
+		}
+		return out;
 	}
 
 	// ---- travel ----

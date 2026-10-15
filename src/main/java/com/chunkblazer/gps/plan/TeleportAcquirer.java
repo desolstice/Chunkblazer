@@ -159,7 +159,7 @@ public final class TeleportAcquirer
 			int qty = Math.max(Math.min(uses, MAX_QTY), Math.min(acq.getQty(), MAX_QTY));
 			String name = acq.getItemName() == null ? "item " + acq.getItemId() : acq.getItemName();
 			PlanNode node = PlanNode.builder()
-				.id("acquire-teleport:" + edgeId)
+				.id(ACQUIRE_PREFIX + edgeId)
 				.type(NodeType.ACQUIRE_TELEPORT)
 				.label("Buy " + name + " x" + qty + " at " + acq.getShop())
 				.location(new ResolvedLocation(acq.getShopTile(), false, "NAME"))
@@ -196,10 +196,15 @@ public final class TeleportAcquirer
 			inserted[bestPos] = a;
 			System.arraycopy(curOrder, bestPos, inserted, bestPos + 1, curOrder.length - bestPos);
 
+			if (usesEdgeBeforeAcquire(inserted, m1, newNodes, withEdge))
+			{
+				continue; // even the plain insertion would route a leg through an edge not yet bought
+			}
 			int[][] ip = Planner.intPreds(newNodes, newPreds);
 			int[] resolved = Solver.solve(n + 1, m1::cost, ip, req.getSeed(), req.getDeadlineMillis());
 			int[] chosen = inserted;
-			if (Solver.valid(resolved, ip) && Solver.pathCost(resolved, m1::cost) < Solver.pathCost(inserted, m1::cost))
+			if (Solver.valid(resolved, ip) && Solver.pathCost(resolved, m1::cost) < Solver.pathCost(inserted, m1::cost)
+				&& !usesEdgeBeforeAcquire(resolved, m1, newNodes, withEdge))
 			{
 				chosen = resolved;
 			}
@@ -212,6 +217,42 @@ public final class TeleportAcquirer
 			accepted++;
 		}
 		return new AcquireResult(curNodes, curTiles, curPreds, curOrder, base, acquired);
+	}
+
+	static final String ACQUIRE_PREFIX = "acquire-teleport:";
+
+	/** The edge id an ACQUIRE_TELEPORT node buys, or null for any other node. */
+	static String acquiredEdgeOf(PlanNode node)
+	{
+		return node.getType() == NodeType.ACQUIRE_TELEPORT && node.getId().startsWith(ACQUIRE_PREFIX)
+			? node.getId().substring(ACQUIRE_PREFIX.length()) : null;
+	}
+
+	/**
+	 * True when some leg of {@code order} routes through an acquired edge before (or on the leg arriving at) that
+	 * edge's acquire node. {@code order} holds 1-based indices into {@code nodes}; START is index 0 of the matrix.
+	 */
+	static boolean usesEdgeBeforeAcquire(int[] order, CostMatrix m, List<PlanNode> nodes, Set<String> acquired)
+	{
+		Set<String> bought = new LinkedHashSet<>();
+		int prev = 0;
+		for (int idx : order)
+		{
+			for (String e : m.route(prev, idx))
+			{
+				if (acquired.contains(e) && !bought.contains(e))
+				{
+					return true;
+				}
+			}
+			String edge = acquiredEdgeOf(nodes.get(idx - 1));
+			if (edge != null)
+			{
+				bought.add(edge);
+			}
+			prev = idx;
+		}
+		return false;
 	}
 
 	private static long pathCost(int[] order, CostMatrix m)

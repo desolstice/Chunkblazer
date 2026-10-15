@@ -141,6 +141,49 @@ class TeleportAcquirerTest
 	}
 
 	@Test
+	void boughtEdgeUsedBeforeItsAcquireNodeIsDetected()
+	{
+		PlanWorld w = world(0, 20, 10000, true);
+		PlanRequest req = w.request();
+		java.util.List<PlanNode> nodes = new java.util.ArrayList<>(
+			new Selector(req, new NodeFactory(req.getData(), req.getQuests(), req.getDeriver(),
+				new com.chunkblazer.gps.travel.LocationResolver(req.getData(), req.getQuests()), java.util.Collections.emptySet()))
+				.select().getNodes());
+		assertEquals(2, nodes.size());
+		com.chunkblazer.gps.data.Tile shop = w.tile(20, 3200);
+		nodes.add(PlanNode.builder().id("acquire-teleport:tele").type(NodeType.ACQUIRE_TELEPORT).label("Buy")
+			.location(new com.chunkblazer.gps.travel.ResolvedLocation(shop, false, "NAME")).build());
+		java.util.Map<String, com.chunkblazer.gps.data.Tile> tiles = new java.util.HashMap<>();
+		for (PlanNode n : nodes)
+		{
+			tiles.put(n.getId(), n.getLocation().getTile());
+		}
+		java.util.Set<String> acquired = java.util.Collections.singleton("tele");
+		com.chunkblazer.gps.travel.CostMatrix m = Planner.buildMatrix(req, nodes, tiles, acquired, null);
+		// order uses 1-based indices: 1,2 = far tasks, 3 = the shop visit
+		assertTrue(TeleportAcquirer.usesEdgeBeforeAcquire(new int[] {1, 2, 3}, m, nodes, acquired));
+		assertFalse(TeleportAcquirer.usesEdgeBeforeAcquire(new int[] {3, 1, 2}, m, nodes, acquired));
+	}
+
+	@Test
+	void viaListsNeverContainAnEdgeBeforeItsPurchase()
+	{
+		Plan with = new Planner(world(0, 20, 10000, true).request()).plan();
+		boolean bought = false;
+		for (PlanStep s : with.getSteps())
+		{
+			if (s.getViaTransportEdgeIds().contains("tele"))
+			{
+				assertTrue(bought);
+			}
+			if (s.getType() == NodeType.ACQUIRE_TELEPORT)
+			{
+				bought = true;
+			}
+		}
+	}
+
+	@Test
 	void constantsMatchTheDesign()
 	{
 		assertEquals(100, TeleportAcquirer.MIN_NET_SAVING_TICKS);

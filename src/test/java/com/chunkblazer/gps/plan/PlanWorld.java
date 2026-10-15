@@ -35,14 +35,19 @@ import com.chunkblazer.gps.model.PlayerState;
 import com.chunkblazer.gps.model.QuestCatalog;
 import com.chunkblazer.gps.travel.ChunkGraph;
 import com.chunkblazer.gps.travel.ChunkNode;
+import com.chunkblazer.gps.travel.CostMatrix;
 import com.chunkblazer.gps.travel.LocationResolver;
 import com.chunkblazer.gps.travel.TileMath;
 import com.chunkblazer.gps.travel.TransportModel;
+import com.chunkblazer.gps.travel.TravelContext;
+import com.chunkblazer.gps.travel.TravelNode;
 import com.google.gson.Gson;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Random;
 import java.util.Set;
 
 /**
@@ -97,6 +102,63 @@ final class PlanWorld
 	static int region(int x, int y)
 	{
 		return TileMath.regionId(x, y);
+	}
+
+	Tile tile(int x, int y)
+	{
+		return new Tile(x, y, 0, false, "TEST");
+	}
+
+	/** Plain walking ticks between two tiles, as the cost model sees them. */
+	int walkTicks(Tile a, Tile b)
+	{
+		List<TravelNode> nodes = Arrays.asList(new TravelNode("A", a), new TravelNode("B", b));
+		return CostMatrix.build(nodes, new TravelContext(request.getState(), Collections.emptySet(), false),
+			request.getGraph(), request.getTransport()).cost(0, 1);
+	}
+
+	PlanWorld maxNodes(int n)
+	{
+		return new PlanWorld(request.toBuilder().maxNodes(n).build(), factory);
+	}
+
+	/**
+	 * Deterministic big world: a 20x20 grid of unlocked regions, {@code taskCount} level-1 tasks, 30 quests of 3-6
+	 * steps (each completed through a QUEST_CHECK task) and 40 free spell teleports; no acquirables.
+	 */
+	static PlanWorld random(long seed, int taskCount)
+	{
+		Random rnd = new Random(seed);
+		int base = 3000;
+		int size = 20 * 64;
+		Builder b = builder().start(base + size / 2, base + size / 2);
+		for (int rx = 0; rx < 20; rx++)
+		{
+			for (int ry = 0; ry < 20; ry++)
+			{
+				b.unlocked(TileMath.regionId(base + rx * 64, base + ry * 64));
+			}
+		}
+		for (int i = 0; i < taskCount; i++)
+		{
+			b.task("t" + i, 1, base + rnd.nextInt(size), base + rnd.nextInt(size));
+		}
+		for (int q = 0; q < 30; q++)
+		{
+			int steps = 3 + rnd.nextInt(4);
+			QuestPart[] parts = new QuestPart[steps];
+			for (int s = 0; s < steps; s++)
+			{
+				parts[s] = step("q" + q + "s" + s, base + rnd.nextInt(size), base + rnd.nextInt(size));
+			}
+			b.quest("Q" + q, parts);
+			b.questTask("Q" + q, 1, TileMath.regionId(base, base));
+		}
+		for (int e = 0; e < 40; e++)
+		{
+			b.freeTeleport("tp" + e, base + rnd.nextInt(size), base + rnd.nextInt(size));
+		}
+		return b.build();
 	}
 
 	PlanRequest requestWithAcquisition(boolean allow)
@@ -169,6 +231,15 @@ final class PlanWorld
 			edges.add("{\"id\":\"" + id + "\",\"kind\":\"SPELL\",\"name\":\"" + id + "\",\"from\":null,\"to\":{\"x\":" + toX
 				+ ",\"y\":3200,\"plane\":0},\"ticks\":5,\"requires\":{\"skills\":{},\"quests\":[],\"items\":[{\"ids\":[" + itemId
 				+ "],\"qty\":1}]},\"consumesItem\":true}");
+			return this;
+		}
+
+		/** A SPELL teleport usable from anywhere with no item requirement. */
+		Builder freeTeleport(String id, int toX, int toY)
+		{
+			edges.add("{\"id\":\"" + id + "\",\"kind\":\"SPELL\",\"name\":\"" + id + "\",\"from\":null,\"to\":{\"x\":" + toX
+				+ ",\"y\":" + toY + ",\"plane\":0},\"ticks\":5,\"requires\":{\"skills\":{},\"quests\":[],\"items\":[]},"
+				+ "\"consumesItem\":false}");
 			return this;
 		}
 

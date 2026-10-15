@@ -51,6 +51,9 @@ public class PlanRequest
 	List<TaskRef> tasks = Collections.emptyList();
 	@Builder.Default
 	Set<String> completedTaskIds = Collections.emptySet();
+	/** Node ids (quest steps) already done; their steps are dropped from quest chains. */
+	@Builder.Default
+	Set<String> doneNodeIds = Collections.emptySet();
 	GpsData data;
 	QuestCatalog quests;
 	RequirementDeriver deriver;

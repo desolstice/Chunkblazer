@@ -48,6 +48,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
 /** Builds plan nodes for tasks, quest step chains, training and item acquisitions. Pure and deterministic. */
 public final class NodeFactory
@@ -58,9 +59,18 @@ public final class NodeFactory
 	private final QuestCatalog quests;
 	private final RequirementDeriver deriver;
 	private final LocationResolver locations;
+	private final Set<String> doneNodeIds;
 
 	public NodeFactory(GpsData data, QuestCatalog quests, RequirementDeriver deriver, LocationResolver locations)
 	{
+		this(data, quests, deriver, locations, Collections.emptySet());
+	}
+
+	/** {@code doneNodeIds}: quest step ids already done; {@link #questChain} drops them. */
+	public NodeFactory(GpsData data, QuestCatalog quests, RequirementDeriver deriver, LocationResolver locations,
+		Set<String> doneNodeIds)
+	{
+		this.doneNodeIds = doneNodeIds == null ? Collections.emptySet() : doneNodeIds;
 		this.data = data;
 		this.quests = quests;
 		this.deriver = deriver;
@@ -89,6 +99,27 @@ public final class NodeFactory
 
 	/** One node per quest step (ordered by {@code after}); empty when the quest is unknown. */
 	public List<PlanNode> questChain(String questId, int completionTaskPoints)
+	{
+		List<PlanNode> full = fullQuestChain(questId, completionTaskPoints);
+		if (doneNodeIds.isEmpty())
+		{
+			return full;
+		}
+		List<PlanNode> out = new ArrayList<>();
+		for (PlanNode n : full)
+		{
+			if (doneNodeIds.contains(n.getId()))
+			{
+				continue;
+			}
+			List<String> after = out.isEmpty() ? Collections.<String>emptyList()
+				: Collections.singletonList(out.get(out.size() - 1).getId());
+			out.add(n.toBuilder().after(after).build());
+		}
+		return out;
+	}
+
+	private List<PlanNode> fullQuestChain(String questId, int completionTaskPoints)
 	{
 		Optional<QuestModel> om = quests.get(questId);
 		if (!om.isPresent())

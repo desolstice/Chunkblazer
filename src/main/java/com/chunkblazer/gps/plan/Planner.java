@@ -79,7 +79,7 @@ public final class Planner
 	public Plan plan()
 	{
 		NodeFactory factory = new NodeFactory(req.getData(), req.getQuests(), req.getDeriver(),
-			new LocationResolver(req.getData(), req.getQuests()));
+			new LocationResolver(req.getData(), req.getQuests()), req.getDoneNodeIds());
 		PrecedenceGraph graph = new Selector(req, factory).select();
 		List<Plan.Unplannable> unplannable = new ArrayList<>(graph.getUnplannable());
 		String version = req.getData() == null ? null : req.getData().getDataVersion();

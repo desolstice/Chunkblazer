@@ -54,7 +54,7 @@ class RequirementDeriverTest
 
 	private RequirementDeriver deriver()
 	{
-		return new RequirementDeriver(QuestCatalog.build(GpsData.empty(null), QuestHelperEntry.loadFromResource()), Overrides.empty());
+		return new RequirementDeriver(QuestCatalog.build(GpsData.empty(null), QuestHelperEntry.loadFromResource()), Overrides.empty(), GpsData.empty(null));
 	}
 
 	private Requirement derive(String json)
@@ -202,7 +202,7 @@ class RequirementDeriverTest
 		Files.createDirectories(tmp.resolve("overrides"));
 		Files.write(tmp.resolve("overrides/requirement_overrides.json"),
 			"{\"c\":{\"skills\":{\"COOKING\":50},\"quests\":[\"X\"],\"items\":[{\"ids\":[1,2],\"qty\":3,\"name\":\"N\"}],\"minMaxHit\":7,\"unknown\":[\"u\"]}}".getBytes(StandardCharsets.UTF_8));
-		RequirementDeriver d = new RequirementDeriver(QuestCatalog.build(GpsData.empty(null), Collections.emptyMap()), Overrides.load(tmp));
+		RequirementDeriver d = new RequirementDeriver(QuestCatalog.build(GpsData.empty(null), Collections.emptyMap()), Overrides.load(tmp), GpsData.empty(null));
 		Requirement r = d.derive(task("{\"name\":\"Cook\",\"taskID\":\"c\",\"completion_type\":\"COOKING\",\"level\":30,\"required_items\":[{\"item_ids\":[9]}]}"));
 		assertEquals(50, (int) r.getSkills().get("COOKING"));
 		assertTrue(r.getQuests().contains("X"));
@@ -230,6 +230,26 @@ class RequirementDeriverTest
 	{
 		Requirement r = derive("{\"name\":\"Free\",\"taskID\":\"f\",\"completion_type\":\"EQUIP\"}");
 		assertTrue(r.getSkills().isEmpty());
+		assertFalse(r.isUnknown());
+	}
+
+	@Test
+	void oneHitTaskWithoutMonsterDataIsUnknown()
+	{
+		Requirement r = derive("{\"name\":\"w\",\"taskID\":\"w\",\"completion_type\":\"NPC_KILL\",\"target_npc\":{\"npc\":[\"Wizard\"],\"npc_ids\":[510]},\"constraints\":{\"time_in_ticks\":[1]}}");
+		assertTrue(r.isUnknown());
+		assertTrue(r.getUnknown().contains("one-hit target HP unknown (no monster data)"));
+	}
+
+	@Test
+	void overrideStillReplacesForOneHitTask(@TempDir Path tmp) throws Exception
+	{
+		Files.createDirectories(tmp.resolve("overrides"));
+		Files.write(tmp.resolve("overrides/requirement_overrides.json"),
+			"{\"w\":{\"minMaxHit\":3}}".getBytes(StandardCharsets.UTF_8));
+		RequirementDeriver d = new RequirementDeriver(QuestCatalog.build(GpsData.empty(null), Collections.emptyMap()), Overrides.load(tmp), GpsData.empty(null));
+		Requirement r = d.derive(task("{\"name\":\"w\",\"taskID\":\"w\",\"completion_type\":\"NPC_KILL\",\"target_npc\":{\"npc\":[\"Wizard\"],\"npc_ids\":[510]},\"constraints\":{\"time_in_ticks\":[1]}}"));
+		assertEquals(3, r.getMinMaxHit());
 		assertFalse(r.isUnknown());
 	}
 }

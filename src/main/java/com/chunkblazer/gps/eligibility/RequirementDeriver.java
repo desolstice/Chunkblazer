@@ -28,6 +28,8 @@ package com.chunkblazer.gps.eligibility;
 import com.chunkblazer.NuzlockeTask;
 import com.chunkblazer.RequiredItem;
 import com.chunkblazer.TaskConstraints;
+import com.chunkblazer.gps.combat.OneHitCheck;
+import com.chunkblazer.gps.data.GpsData;
 import com.chunkblazer.gps.model.ItemNeed;
 import com.chunkblazer.gps.model.QuestCatalog;
 import com.chunkblazer.gps.model.QuestModel;
@@ -41,6 +43,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 
 /** Derives the {@link Requirement} for a task from its catalog fields, unless overridden. */
@@ -65,11 +68,13 @@ public final class RequirementDeriver
 
 	private final QuestCatalog quests;
 	private final Overrides overrides;
+	private final GpsData data;
 
-	public RequirementDeriver(QuestCatalog quests, Overrides overrides)
+	public RequirementDeriver(QuestCatalog quests, Overrides overrides, GpsData data)
 	{
 		this.quests = Objects.requireNonNull(quests, "quests");
 		this.overrides = Objects.requireNonNull(overrides, "overrides");
+		this.data = Objects.requireNonNull(data, "data");
 	}
 
 	public Requirement derive(NuzlockeTask t)
@@ -174,6 +179,19 @@ public final class RequirementDeriver
 		if (UNKNOWN_TYPES.contains(type))
 		{
 			b.unknown("cannot judge " + type + " from skills and items");
+		}
+		// (8) one-hit kills need a max hit of at least the target's hitpoints
+		if (OneHitCheck.isOneHit(t))
+		{
+			OptionalInt hp = OneHitCheck.targetHp(t, data);
+			if (hp.isPresent())
+			{
+				b.minMaxHit(hp.getAsInt());
+			}
+			else
+			{
+				b.unknown("one-hit target HP unknown (no monster data)");
+			}
 		}
 		return b.build().merge(fromQuest);
 	}

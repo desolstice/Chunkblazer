@@ -48,6 +48,13 @@ public class GpsData
 			new ArrayList<>(), new ArrayList<>(), null, status);
 	}
 
+	/** Test/support use: data holding only the given monsters (other lists empty, no version, null status). */
+	public static GpsData withMonsters(List<MonsterDef> monsters)
+	{
+		return new GpsData(new ArrayList<>(monsters), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(),
+			new ArrayList<>(), new ArrayList<>(), null, null);
+	}
+
 	public List<MonsterDef> getMonsters()
 	{
 		return monsters == null ? Collections.emptyList() : monsters;

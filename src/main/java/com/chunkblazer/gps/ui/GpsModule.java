@@ -26,6 +26,7 @@
 package com.chunkblazer.gps.ui;
 
 import com.chunkblazer.NuzlockeTask;
+import com.chunkblazer.gps.adapter.BankCache;
 import com.chunkblazer.gps.adapter.PlayerStateProvider;
 import com.chunkblazer.gps.data.GpsData;
 import com.chunkblazer.gps.data.GpsDataLocator;
@@ -66,6 +67,7 @@ public final class GpsModule
 	private final Supplier<List<NuzlockeTask>> taskSupplier;
 	private final Supplier<Set<String>> openRegionIds;
 	private final BufferedImage icon;
+	private final BankCache bankCache;
 
 	private volatile boolean stopped;
 	private NavigationButton button;
@@ -73,7 +75,7 @@ public final class GpsModule
 
 	public GpsModule(Client client, ClientThread clientThread, ScheduledExecutorService executor,
 		ClientToolbar clientToolbar, Supplier<String> dataDirConfig, Supplier<List<NuzlockeTask>> taskSupplier,
-		Supplier<Set<String>> openRegionIds, BufferedImage icon)
+		Supplier<Set<String>> openRegionIds, BufferedImage icon, BankCache bankCache)
 	{
 		this.client = client;
 		this.clientThread = clientThread;
@@ -83,6 +85,7 @@ public final class GpsModule
 		this.taskSupplier = taskSupplier;
 		this.openRegionIds = openRegionIds;
 		this.icon = icon;
+		this.bankCache = bankCache;
 	}
 
 	/** Loads the data off the client thread, then registers the panel on the EDT. */
@@ -99,7 +102,7 @@ public final class GpsModule
 				EligibilityEngine engine = new EligibilityEngine(
 					new RequirementDeriver(quests, Overrides.load(dir), data), quests, data);
 				PlayerStateProvider provider = new PlayerStateProvider(client, openRegionIds, this::questFinished,
-					Collections::emptyMap);
+					bankCache::items);
 				SwingUtilities.invokeLater(() -> createPanel(data, engine, provider));
 			}
 			catch (Throwable ex)

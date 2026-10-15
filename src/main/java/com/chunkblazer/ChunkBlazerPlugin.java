@@ -71,6 +71,9 @@ import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.StatChanged;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.api.gameval.InventoryID;
+import net.runelite.client.game.ItemManager;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.events.MenuEntryAdded;
 import net.runelite.api.events.MenuOptionClicked;
@@ -103,6 +106,8 @@ import com.chunkblazer.api.HcimDeathReport;
 import com.chunkblazer.api.PlayerLoginResponse;
 import com.chunkblazer.api.PlayerSyncRequest;
 import com.chunkblazer.api.ServerBackoff;
+import com.chunkblazer.gps.adapter.BankCache;
+import com.chunkblazer.gps.adapter.BankCacheStore;
 import com.chunkblazer.gps.ui.GpsModule;
 import com.chunkblazer.modules.TaskModuleManager;
 
@@ -282,6 +287,14 @@ public class ChunkBlazerPlugin extends Plugin
 	private ChunkBlazerPanel panel;
 	private NavigationButton navButton;
 	private GpsModule gpsModule;
+
+	@Inject
+	private ItemManager itemManager;
+
+	// Per-account bank snapshot for the GPS; reloaded on every profile change so accounts never share it.
+	private final BankCache gpsBankCache = new BankCache(
+		new BankCacheStore(this::getAccountState, this::setAccountState, this::isAccountStateAvailable),
+		() -> configManager != null ? configManager.getRSProfileKey() : null);
 	private volatile int lastRegionId = -1;
 	private final Random random = new Random();
 
@@ -458,8 +471,9 @@ public class ChunkBlazerPlugin extends Plugin
 		try
 		{
 			gpsModule = new GpsModule(client, clientThread, executorService, clientToolbar, config::gpsDataDir,
-				this::gpsTasks, this::gpsOpenRegionIds, icon);
+				this::gpsTasks, this::gpsOpenRegionIds, icon, gpsBankCache);
 			gpsModule.start();
+			executorService.execute(gpsBankCache::reload);
 		}
 		catch (Exception | LinkageError ex)
 		{
@@ -845,8 +859,28 @@ public class ChunkBlazerPlugin extends Plugin
 	 * null profile is exactly the account-less write being eliminated.
 	 */
 	@Subscribe
+	public void onItemContainerChanged(ItemContainerChanged event)
+	{
+		if (event.getContainerId() != InventoryID.BANK || event.getItemContainer() == null)
+		{
+			return;
+		}
+		java.util.Map<Integer, Integer> bank = new java.util.HashMap<>();
+		for (net.runelite.api.Item item : event.getItemContainer().getItems())
+		{
+			if (item.getId() > 0 && item.getQuantity() > 0)
+			{
+				bank.merge(itemManager.canonicalize(item.getId()), item.getQuantity(), Integer::sum);
+			}
+		}
+		executorService.execute(gpsBankCache.updateTask(bank));
+	}
+
+	@Subscribe
 	public void onRuneScapeProfileChanged(RuneScapeProfileChanged event)
 	{
+		gpsBankCache.clear();
+		executorService.execute(gpsBankCache::reload);
 		if (!isAccountStateAvailable())
 		{
 			pendingProfileBootstrap = false;

@@ -137,12 +137,23 @@ class OneHitCheckTest
 	}
 
 	@Test
-	void nonOneHitKillGetsNeitherMinMaxHitNorUnknown()
+	void timeLimitedKillGetsApproximateMinMaxHitAndNoUnknown()
 	{
 		GpsData d = GpsData.withMonsters(Arrays.asList(monster(Arrays.asList(510), "Dark wizard", 12)));
 		var r = deriverFor(d).derive(task(ONE_HIT.replace("[1]}", "[20]}")));
-		assertEquals(0, r.getMinMaxHit());
+		// ceil(2 * 12 / (20 / 4 * 0.7)) = ceil(6.857) = 7
+		assertEquals(7, r.getMinMaxHit());
+		assertTrue(r.isApproximate());
 		assertFalse(r.isUnknown());
-		assertFalse(deriverFor(GpsData.empty(null)).derive(task(ONE_HIT.replace("[1]}", "[20]}"))).isUnknown());
+		var noData = deriverFor(GpsData.empty(null)).derive(task(ONE_HIT.replace("[1]}", "[20]}")));
+		assertFalse(noData.isUnknown());
+		assertFalse(noData.isApproximate());
+	}
+
+	@Test
+	void oneHitKillIsNotApproximate()
+	{
+		GpsData d = GpsData.withMonsters(Arrays.asList(monster(Arrays.asList(510), "Dark wizard", 12)));
+		assertFalse(deriverFor(d).derive(task(ONE_HIT)).isApproximate());
 	}
 }

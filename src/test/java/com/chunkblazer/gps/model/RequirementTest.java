@@ -147,6 +147,17 @@ class RequirementTest
 	}
 
 	@Test
+	void approximateMergesWithOrAndMarksMaxHitText()
+	{
+		Requirement a = Requirement.builder().minMaxHit(10).approximate(true).build();
+		Requirement b = Requirement.builder().minMaxHit(5).build();
+		assertTrue(a.merge(b).isApproximate());
+		assertTrue(b.merge(a).isApproximate());
+		assertTrue(!b.isApproximate());
+		assertTrue(a.missing(PlayerState.freshAccount()).get(0).getText().endsWith("(approx.)"));
+	}
+
+	@Test
 	void mergeCombinesEverythingElse()
 	{
 		ItemNeed a = new ItemNeed(new HashSet<>(Arrays.asList(1)), 1, "A");

@@ -50,6 +50,7 @@ public final class Requirement
 	private final int minMaxHit;
 	private final Set<Integer> chunks;
 	private final List<String> unknown;
+	private final boolean approximate;
 
 	private Requirement(Builder b)
 	{
@@ -61,6 +62,7 @@ public final class Requirement
 		this.minMaxHit = b.minMaxHit;
 		this.chunks = Collections.unmodifiableSet(new LinkedHashSet<>(b.chunks));
 		this.unknown = Collections.unmodifiableList(new ArrayList<>(b.unknown));
+		this.approximate = b.approximate;
 	}
 
 	public static Builder builder()
@@ -106,6 +108,12 @@ public final class Requirement
 	public List<String> getUnknown()
 	{
 		return unknown;
+	}
+
+	/** True when a threshold (currently the max hit of time-limited kills) is an estimate; the UI shows "(approx.)". */
+	public boolean isApproximate()
+	{
+		return approximate;
 	}
 
 	public boolean isUnknown()
@@ -160,7 +168,7 @@ public final class Requirement
 		if (minMaxHit > 0 && state.getMaxHit() < minMaxHit)
 		{
 			out.add(new Missing(Missing.Kind.MAX_HIT,
-				"Max hit " + minMaxHit + " (you have " + state.getMaxHit() + ")"));
+				"Max hit " + minMaxHit + " (you have " + state.getMaxHit() + ")" + (approximate ? " (approx.)" : "")));
 		}
 		for (int c : chunks)
 		{
@@ -189,6 +197,7 @@ public final class Requirement
 		b.items.addAll(items);
 		b.items.addAll(other.items);
 		b.minMaxHit = Math.max(minMaxHit, other.minMaxHit);
+		b.approximate = approximate || other.approximate;
 		b.chunks.addAll(chunks);
 		b.chunks.addAll(other.chunks);
 		b.unknown.addAll(unknown);
@@ -230,6 +239,7 @@ public final class Requirement
 		private int minMaxHit;
 		private final Set<Integer> chunks = new LinkedHashSet<>();
 		private final List<String> unknown = new ArrayList<>();
+		private boolean approximate;
 
 		private Builder()
 		{
@@ -268,6 +278,12 @@ public final class Requirement
 		public Builder minMaxHit(int hit)
 		{
 			this.minMaxHit = hit;
+			return this;
+		}
+
+		public Builder approximate(boolean approximate)
+		{
+			this.approximate = approximate;
 			return this;
 		}
 

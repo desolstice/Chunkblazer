@@ -28,6 +28,7 @@ package com.chunkblazer.gps.eligibility;
 import com.chunkblazer.NuzlockeTask;
 import com.chunkblazer.RequiredItem;
 import com.chunkblazer.TaskConstraints;
+import com.chunkblazer.gps.combat.KillTimeCheck;
 import com.chunkblazer.gps.combat.OneHitCheck;
 import com.chunkblazer.gps.data.GpsData;
 import com.chunkblazer.gps.model.ItemNeed;
@@ -193,6 +194,24 @@ public final class RequirementDeriver
 				b.unknown("one-hit target HP unknown (no monster data)");
 			}
 		}
+		else if (isTimeLimitedKill(t))
+		{
+			// approximate: kills with a limit above one tick need enough damage output to finish in time
+			OptionalInt hp = OneHitCheck.targetHp(t, data);
+			if (hp.isPresent())
+			{
+				b.minMaxHit(KillTimeCheck.requiredMaxHit(hp.getAsInt(), t.getConstraints().getTimeInTicks(),
+					KillTimeCheck.DEFAULT_ATTACK_SPEED, KillTimeCheck.DEFAULT_HIT_CHANCE));
+				b.approximate(true);
+			}
+		}
 		return b.build().merge(fromQuest);
+	}
+
+	private static boolean isTimeLimitedKill(NuzlockeTask t)
+	{
+		TaskConstraints c = t.getConstraints();
+		return t.getCompletionType() != null && "NPC_KILL".equals(t.getCompletionType().trim().toUpperCase(Locale.ROOT))
+			&& c != null && c.getTimeInTicks() != null && c.getTimeInTicks() > 1;
 	}
 }

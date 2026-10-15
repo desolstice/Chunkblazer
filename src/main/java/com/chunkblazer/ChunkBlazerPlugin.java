@@ -476,7 +476,7 @@ public class ChunkBlazerPlugin extends Plugin
 			gpsModule = new GpsModule(client, clientThread, executorService, clientToolbar, config::gpsDataDir,
 				this::gpsTasks, this::gpsOpenRegionIds, icon, gpsBankCache, itemManager,
 				new GpsModule.PlanSources(() -> allChunks, () -> globalTasks, this::getRegionUnlockCost,
-					this::getCompletedTaskIds), planHighlight);
+					this::getCompletedTaskIds, this::isFreeRegion), planHighlight);
 			gpsModule.start();
 			executorService.execute(gpsBankCache::reload);
 		}

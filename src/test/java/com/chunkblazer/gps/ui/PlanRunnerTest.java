@@ -138,4 +138,31 @@ class PlanRunnerTest
 		assertEquals(2, g.getHomeRegionId());
 		assertEquals(0, g.getUnlockCost());
 	}
+
+	@Test
+	void simulatedChunksDriveTaskRefsAndStartingGlobalHome()
+	{
+		SimulationSession sim = new SimulationSession();
+		sim.startFresh(Collections.singleton(1));
+		sim.setChunk(2, true);
+		sim.setChunk(1, false);
+		PlayerState s = sim.view();
+		List<TaskRef> refs = PlanRunner.taskRefs(
+			Arrays.asList(chunk(1, task("a")), chunk(2, task("a"))), Arrays.asList(task("g")), s, region -> 5);
+		TaskRef a = refs.stream().filter(r -> "a".equals(r.getTask().getTaskId())).findFirst().get();
+		assertEquals(2, a.getHomeRegionId());
+		TaskRef g = refs.stream().filter(r -> "g".equals(r.getTask().getTaskId())).findFirst().get();
+		assertEquals(2, g.getHomeRegionId());
+	}
+
+	@Test
+	void simulateRunPlansWithTheSimulatedUnlockedChunks()
+	{
+		SimulationSession sim = new SimulationSession();
+		sim.startFresh(Collections.singleton(1));
+		sim.setChunk(77, true);
+		PlanRunner.Result r = runner().run(true, false, inputs(sim.view()), GoalMode.maxPoints());
+		assertSame(empty, r.getPlan());
+		assertEquals(new java.util.HashSet<>(Arrays.asList(1, 77)), last.get().getState().getUnlockedChunks());
+	}
 }

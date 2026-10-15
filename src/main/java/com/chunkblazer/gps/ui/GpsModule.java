@@ -53,6 +53,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.IntPredicate;
 import java.util.function.IntUnaryOperator;
 import java.util.function.Supplier;
 import javax.swing.SwingUtilities;
@@ -85,6 +86,7 @@ public final class GpsModule
 
 	private final PlanSources sources;
 	private final PlanHighlight highlight;
+	private final SimulationSession simulation = new SimulationSession();
 	private final ReplanTrigger trigger = new ReplanTrigger(System::currentTimeMillis,
 		ReplanTrigger.DEFAULT_WINDOW_MILLIS, this::runPlan);
 
@@ -103,14 +105,16 @@ public final class GpsModule
 		private final Supplier<List<NuzlockeTask>> globalTasks;
 		private final IntUnaryOperator unlockCost;
 		private final Supplier<Set<String>> completedTaskIds;
+		private final IntPredicate freeRegion;
 
 		public PlanSources(Supplier<List<NuzlockeChunk>> chunks, Supplier<List<NuzlockeTask>> globalTasks,
-			IntUnaryOperator unlockCost, Supplier<Set<String>> completedTaskIds)
+			IntUnaryOperator unlockCost, Supplier<Set<String>> completedTaskIds, IntPredicate freeRegion)
 		{
 			this.chunks = chunks;
 			this.globalTasks = globalTasks;
 			this.unlockCost = unlockCost;
 			this.completedTaskIds = completedTaskIds;
+			this.freeRegion = freeRegion;
 		}
 	}
 
@@ -150,7 +154,14 @@ public final class GpsModule
 					bankCache::items, itemManager);
 				this.provider = provider;
 				runner = new PlanRunner(data, quests, new RequirementDeriver(quests, Overrides.load(dir), data));
-				tick = executor.scheduleWithFixedDelay(this::tickSafely, 1, 1, TimeUnit.SECONDS);
+				ScheduledFuture<?> scheduled = executor.scheduleWithFixedDelay(this::tickSafely, 1, 1, TimeUnit.SECONDS);
+				tick = scheduled;
+				if (stopped)
+				{
+					// stop() ran while loading and found no tick to cancel.
+					scheduled.cancel(false);
+					return;
+				}
 				SwingUtilities.invokeLater(() -> createPanel(data, engine, provider, quests));
 			}
 			catch (Throwable ex)
@@ -202,7 +213,15 @@ public final class GpsModule
 		});
 		planPanel = new GpsPlanPanel(trigger::request, highlight, data,
 			id -> quests.get(id).map(QuestModel::getName).orElse(null));
-		panel = new GpsPanel(model, data, requester, planPanel, new SimulatePanel());
+		SimulatePanel simulatePanel = new SimulatePanel(simulation, data, quests, () -> new ArrayList<>(sources.chunks.get()),
+			sources.freeRegion);
+		GpsPanel gpsPanel = new GpsPanel(model, data, requester, planPanel, simulatePanel, simulation);
+		panel = gpsPanel;
+		simulation.setListener(() ->
+		{
+			gpsPanel.refresh();
+			requestReplan();
+		});
 		button = NavigationButton.builder().tooltip("GPS").icon(icon).priority(9).panel(panel).build();
 		clientToolbar.addNavigation(button);
 	}
@@ -219,6 +238,10 @@ public final class GpsModule
 
 	private void tickSafely()
 	{
+		if (stopped)
+		{
+			return;
+		}
 		try
 		{
 			trigger.tick();
@@ -316,6 +339,7 @@ public final class GpsModule
 	public void stop()
 	{
 		stopped = true;
+		simulation.setListener(null);
 		ScheduledFuture<?> t = tick;
 		if (t != null)
 		{

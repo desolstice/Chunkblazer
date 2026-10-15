@@ -55,6 +55,7 @@ public final class SimulatedState
 	private final Map<Integer, Integer> items = new HashMap<>();
 	private final Set<String> unlocks = new HashSet<>();
 	private int questPoints;
+	private int taskPoints;
 	private int maxHit;
 	private boolean explicitMaxHit;
 
@@ -81,6 +82,7 @@ public final class SimulatedState
 		s.items.putAll(real.getItems());
 		s.unlocks.addAll(real.getUnlocks());
 		s.questPoints = real.getQuestPoints();
+		s.taskPoints = real.getTaskPoints();
 		return s;
 	}
 
@@ -135,6 +137,11 @@ public final class SimulatedState
 		this.questPoints = Math.max(0, questPoints);
 	}
 
+	public void setTaskPoints(int taskPoints)
+	{
+		this.taskPoints = Math.max(0, taskPoints);
+	}
+
 	public PlayerState build()
 	{
 		PlayerState.Builder b = PlayerState.builder();
@@ -144,7 +151,7 @@ public final class SimulatedState
 		chunks.forEach(b::chunk);
 		items.forEach(b::item);
 		unlocks.forEach(b::unlock);
-		return b.questPoints(questPoints).maxHit(explicitMaxHit ? maxHit : derivedMaxHit()).build();
+		return b.questPoints(questPoints).taskPoints(taskPoints).maxHit(explicitMaxHit ? maxHit : derivedMaxHit()).build();
 	}
 
 	/** Level-only lower bound (no gear), recomputed from the simulated levels like the real provider does. */

@@ -156,4 +156,15 @@ class SimulatedStateTest
 		s.setLevel("STRENGTH", 99);
 		assertTrue(s.build().getMaxHit() > 1);
 	}
+
+	@Test
+	void taskPointsEditableAndCopiedFromReal()
+	{
+		SimulatedState s = SimulatedState.fromReal(PlayerState.builder().taskPoints(12).build());
+		assertEquals(12, s.build().getTaskPoints());
+		s.setTaskPoints(99);
+		assertEquals(99, s.build().getTaskPoints());
+		s.setTaskPoints(-5);
+		assertEquals(0, s.build().getTaskPoints());
+	}
 }

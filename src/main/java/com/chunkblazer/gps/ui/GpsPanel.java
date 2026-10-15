@@ -25,17 +25,14 @@
  */
 package com.chunkblazer.gps.ui;
 
-import com.chunkblazer.gps.adapter.SimulatedState;
 import com.chunkblazer.gps.data.GpsData;
 import com.chunkblazer.gps.eligibility.Eligibility;
 import com.chunkblazer.gps.model.Missing;
 import com.chunkblazer.gps.model.PlayerState;
 import java.awt.BorderLayout;
 import java.awt.Color;
-import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
-import java.awt.GridLayout;
 import java.util.List;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -46,11 +43,8 @@ import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
-import javax.swing.JSpinner;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
-import javax.swing.JToggleButton;
-import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.event.DocumentEvent;
@@ -78,7 +72,8 @@ public class GpsPanel extends PluginPanel
 	/** Asks the plugin for a real snapshot plus a model over the current task list; delivers from any thread. */
 	private final Consumer<BiConsumer<PlayerState, GpsPanelModel>> snapshotRequester;
 
-	private final JToggleButton simulateToggle = new JToggleButton("Simulate");
+	private final JLabel modeLabel = new JLabel("Real account");
+	private final SimulationSession session;
 	private final JCheckBox doableBox = new JCheckBox("Doable", true);
 	private final JCheckBox blockedBox = new JCheckBox("Blocked", true);
 	private final JCheckBox unknownBox = new JCheckBox("Unknown", true);
@@ -86,7 +81,6 @@ public class GpsPanel extends PluginPanel
 	private final JTextField search = new JTextField();
 	private final JLabel summaryLabel = new JLabel(" ");
 	private final JLabel loginHint = new JLabel("Log in to read your real skills");
-	private final JPanel levelEditor = new JPanel(new GridLayout(0, 2, 4, 2));
 	private final JPanel list = new JPanel();
 	private final Timer coalesce;
 
@@ -95,17 +89,16 @@ public class GpsPanel extends PluginPanel
 	private final GpsPlanPanel planPanel;
 
 	private PlayerState realState = PlayerState.freshAccount();
-	private SimulatedState simulated;
-	/** The simulated state while the Tasks tab is in Simulate mode, else null. Read by the planner from any thread. */
-	private volatile PlayerState simulatedView;
 
 	public GpsPanel(GpsPanelModel model, GpsData data, Consumer<BiConsumer<PlayerState, GpsPanelModel>> snapshotRequester,
-		GpsPlanPanel planPanel, SimulatePanel simulatePanel)
+		GpsPlanPanel planPanel, SimulatePanel simulatePanel, SimulationSession session)
 	{
 		super(false);
 		this.model = model;
 		this.snapshotRequester = snapshotRequester;
 		this.planPanel = planPanel;
+		this.session = session;
+		simulatePanel.setRealSource(() -> realState);
 		setLayout(new BorderLayout());
 		setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
 		tasksTab.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
@@ -119,11 +112,9 @@ public class GpsPanel extends PluginPanel
 		top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
 
 		JPanel modeRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-		simulateToggle.addActionListener(e -> onModeChanged());
 		JButton refresh = new JButton("Refresh");
 		refresh.addActionListener(e -> refresh());
-		modeRow.add(new JLabel("Real /"));
-		modeRow.add(simulateToggle);
+		modeRow.add(modeLabel);
 		modeRow.add(refresh);
 		top.add(modeRow);
 
@@ -166,23 +157,6 @@ public class GpsPanel extends PluginPanel
 		top.add(loginHint);
 		top.add(summaryLabel);
 
-		levelEditor.setVisible(false);
-		for (String skill : SKILLS)
-		{
-			JSpinner spinner = new JSpinner(new SpinnerNumberModel(1, 1, 99, 1));
-			spinner.setName(skill);
-			spinner.addChangeListener(e ->
-			{
-				if (simulated != null)
-				{
-					simulated.setLevel(skill, (Integer) spinner.getValue());
-					coalesce.restart();
-				}
-			});
-			levelEditor.add(new JLabel(skill.substring(0, 1) + skill.substring(1).toLowerCase()));
-			levelEditor.add(spinner);
-		}
-		top.add(levelEditor);
 		tasksTab.add(top, BorderLayout.NORTH);
 
 		list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
@@ -197,7 +171,7 @@ public class GpsPanel extends PluginPanel
 	/** The simulated state while Simulate is on, else null (real mode). Safe from any thread. */
 	public PlayerState simulatedState()
 	{
-		return simulatedView;
+		return session.view();
 	}
 
 	private void syncPlanTab()
@@ -222,7 +196,7 @@ public class GpsPanel extends PluginPanel
 	public void onActivate()
 	{
 		syncPlanTab();
-		if (!simulateToggle.isSelected())
+		if (!session.isActive())
 		{
 			refresh();
 		}
@@ -231,9 +205,9 @@ public class GpsPanel extends PluginPanel
 	/** Re-reads the real state (real mode) and redraws. Safe to call from any thread. */
 	public void refresh()
 	{
-		if (simulateToggle.isSelected())
+		if (session.isActive())
 		{
-			SwingUtilities.invokeLater(this::render);
+			SwingUtilities.invokeLater(coalesce::restart);
 			return;
 		}
 		snapshotRequester.accept((state, freshModel) -> SwingUtilities.invokeLater(() ->
@@ -244,36 +218,11 @@ public class GpsPanel extends PluginPanel
 		}));
 	}
 
-	private void onModeChanged()
-	{
-		if (simulateToggle.isSelected())
-		{
-			simulated = SimulatedState.fromReal(realState);
-			PlayerState s = simulated.build();
-			for (Component c : levelEditor.getComponents())
-			{
-				if (c instanceof JSpinner)
-				{
-					JSpinner sp = (JSpinner) c;
-					sp.setValue(s.getLevel(sp.getName()));
-				}
-			}
-			levelEditor.setVisible(true);
-			render();
-		}
-		else
-		{
-			levelEditor.setVisible(false);
-			simulated = null;
-			simulatedView = null;
-			refresh();
-		}
-	}
-
 	private void render()
 	{
-		PlayerState state = simulateToggle.isSelected() && simulated != null ? simulated.build() : realState;
-		simulatedView = simulateToggle.isSelected() && simulated != null ? state : null;
+		PlayerState sim = session.view();
+		modeLabel.setText(sim == null ? "Real account" : "Simulated (edit in Simulate tab)");
+		PlayerState state = sim != null ? sim : realState;
 		GpsPanelModel.Filter f = GpsPanelModel.Filter.all();
 		f.setShowDoable(doableBox.isSelected());
 		f.setShowBlocked(blockedBox.isSelected());

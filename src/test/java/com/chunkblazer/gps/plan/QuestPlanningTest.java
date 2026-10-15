@@ -152,6 +152,22 @@ class QuestPlanningTest
 	}
 
 	@Test
+	void requiredQuestWhoseStepsAreAllDoneIsNotReplannedOrUnplannable()
+	{
+		PlanWorld w = PlanWorld.builder().unlocked(R50)
+			.quest("A", step("A step", 3205, 3205))
+			.quest("B", requiresQuest("A"), step("B step", 3206, 3206))
+			.questTask("B", 3, R50)
+			.start(3200, 3200).build();
+		java.util.Set<String> done = new java.util.HashSet<>(Arrays.asList("quest:A:0"));
+		Plan p = new Planner(w.request(r -> r.doneNodeIds(done))).plan();
+		List<String> l = labelsOf(p);
+		assertEquals(-1, indexContaining(l, "A step"), l.toString());
+		assertTrue(indexContaining(l, "B step") >= 0, l + " " + p.getUnplannable());
+		assertTrue(p.getUnplannable().isEmpty(), p.getUnplannable().toString());
+	}
+
+	@Test
 	void unknownLocationStepsAreFlaggedApproximate()
 	{
 		PlanWorld w = PlanWorld.builder().unlocked(R50)

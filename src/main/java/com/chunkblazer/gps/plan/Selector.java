@@ -379,7 +379,7 @@ public final class Selector
 		for (String q : r.getQuests())
 		{
 			Requirement atom = Requirement.builder().quest(q).build();
-			if (!atom.missing(state).isEmpty())
+			if (!atom.missing(state).isEmpty() && !factory.questFullyDone(q))
 			{
 				String id = provideQuest(w, p, atom, q, queue);
 				if (id == null)

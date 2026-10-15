@@ -131,6 +131,17 @@ public final class Planner
 		// Defensive replay: every planned node's requirement must hold in the projected state.
 		List<Integer> planned = new ArrayList<>();
 		PlayerState projected = req.getState();
+		// Quests whose steps are all done but which the state does not yet list count as complete for the replay.
+		for (PlanNode node : nodes)
+		{
+			for (String q : node.getRequirement().getQuests())
+			{
+				if (!projected.hasQuest(q) && factory.questFullyDone(q))
+				{
+					projected = projected.withQuestComplete(q, 0);
+				}
+			}
+		}
 		for (int idx : order)
 		{
 			PlanNode node = nodes.get(idx - 1);

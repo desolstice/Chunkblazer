@@ -796,4 +796,25 @@ public interface ChunkBlazerConfig extends Config
 	{
 		return Keybind.SHIFT;
 	}
+
+	// ── Progression GPS ──────────────────────────────────────────────────
+
+	@ConfigSection(
+		name = "Progression GPS",
+		description = "Progression GPS settings",
+		position = 8
+	)
+	String gpsSection = "gps";
+
+	@ConfigItem(
+		keyName = "gpsDataDir",
+		name = "GPS data folder",
+		description = "Local folder with Progression GPS data. Blank uses ~/.runelite/chunkblazer/gps-data.",
+		section = gpsSection,
+		position = 0
+	)
+	default String gpsDataDir()
+	{
+		return "";
+	}
 }

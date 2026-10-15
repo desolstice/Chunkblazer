@@ -46,6 +46,9 @@ import java.util.Optional;
 /** Resolves tasks, quest steps and names to representative tiles. Deterministic and null-tolerant. */
 public final class LocationResolver
 {
+	/** How far (Chebyshev tiles) from its home chunk centre a task's target spawn may be to count as the task's location. */
+	public static final int HOME_RADIUS_TILES = 192;
+
 	private static final ResolvedLocation NONE = new ResolvedLocation(null, true, "NONE");
 
 	private static final Comparator<LocationEntry> TIE = Comparator
@@ -112,7 +115,7 @@ public final class LocationResolver
 						}
 					}
 				}
-				LocationEntry best = closest(hits, home);
+				LocationEntry best = closest(nearHome(hits, home), home);
 				if (best != null)
 				{
 					return fromEntry(best, "NPC_ID");
@@ -120,7 +123,7 @@ public final class LocationResolver
 				String name = stripVariant(npc.getName());
 				if (name != null)
 				{
-					best = closest(byLowerName.get(name.toLowerCase(Locale.ROOT)), home);
+					best = closest(nearHome(byLowerName.get(name.toLowerCase(Locale.ROOT)), home), home);
 					if (best != null)
 					{
 						return fromEntry(best, "NAME");
@@ -141,6 +144,28 @@ public final class LocationResolver
 			}
 		}
 		return new ResolvedLocation(home, true, "CHUNK_CENTRE");
+	}
+
+	/**
+	 * Entries within {@link #HOME_RADIUS_TILES} of the task's home chunk centre. A task can only be done inside its own
+	 * chunk, so a spawn of the target far away (another continent, a dungeon) is not where this task happens, and
+	 * routing to it would make the task look unreachable; those fall back to the chunk centre instead.
+	 */
+	private static List<LocationEntry> nearHome(List<LocationEntry> entries, Tile home)
+	{
+		List<LocationEntry> out = new ArrayList<>();
+		if (entries != null)
+		{
+			for (LocationEntry e : entries)
+			{
+				if (e != null && e.getX() != null && e.getY() != null
+					&& Math.max(Math.abs((long) e.getX() - home.getX()), Math.abs((long) e.getY() - home.getY())) <= HOME_RADIUS_TILES)
+				{
+					out.add(e);
+				}
+			}
+		}
+		return out;
 	}
 
 	public ResolvedLocation forQuestStep(String questId, int stepIndex)

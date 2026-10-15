@@ -172,8 +172,9 @@ public final class TransportModel
 		{
 			return null;
 		}
-		int ticks = ticks(e);
 		boolean granted = e.getName() != null && s.hasUnlock("TELEPORT:" + e.getName());
+		// A token-granted teleport consumes no item, so it carries no consumable penalty.
+		int ticks = ticks(e, !granted);
 		if (granted || acquired.contains(e.getId()))
 		{
 			return new UsableEdge(e, UsableEdge.Availability.AVAILABLE, Collections.<Acquisition>emptyList(), ticks);
@@ -197,7 +198,7 @@ public final class TransportModel
 			{
 				continue;
 			}
-			Acquisition a = includeAcquirable ? cheapestShop(r) : null;
+			Acquisition a = includeAcquirable ? cheapestShop(r, (int) Math.min(Integer.MAX_VALUE, r.getQty() - owned)) : null;
 			if (a == null)
 			{
 				return null;
@@ -209,14 +210,14 @@ public final class TransportModel
 			acquisitions, ticks);
 	}
 
-	private static int ticks(TransportEdge e)
+	private static int ticks(TransportEdge e, boolean consumes)
 	{
-		long t = (long) Math.max(0, e.getTicks()) + (e.isConsumesItem() ? TravelConfig.CONSUMABLE_PENALTY_TICKS : 0);
+		long t = (long) Math.max(0, e.getTicks()) + (consumes && e.isConsumesItem() ? TravelConfig.CONSUMABLE_PENALTY_TICKS : 0);
 		return (int) Math.min(t, TravelConfig.INF);
 	}
 
 	/** Cheapest SHOP source across the any-of item ids; ties broken by shop name then item id. Null if none. */
-	private Acquisition cheapestShop(Requirements.ItemReq r)
+	private Acquisition cheapestShop(Requirements.ItemReq r, int missingQty)
 	{
 		Integer bestItem = null;
 		ItemDef.Source best = null;
@@ -258,7 +259,7 @@ public final class TransportModel
 			return null;
 		}
 		return new Acquisition(bestItem, items.get(bestItem).getName(), best.getShop(), shopTile(best.getShop()),
-			best.getPrice() == null ? 0 : best.getPrice());
+			best.getPrice() == null ? 0 : best.getPrice(), missingQty, best.getPrice() != null);
 	}
 
 	private Tile shopTile(String shop)

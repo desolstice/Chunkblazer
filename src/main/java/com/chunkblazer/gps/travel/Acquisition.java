@@ -37,6 +37,13 @@ public class Acquisition
 	String shop;
 	/** Null when the shop location is unknown. */
 	Tile shopTile;
-	/** Coin price; 0 when the data does not state one. */
+	/**
+	 * Coin price per unit. Meaningful only when {@link #priced} is true; when false it is 0 and means "unknown",
+	 * never "free". Consumers must treat an unpriced acquisition conservatively (assume an unknown, non-zero cost).
+	 */
 	int price;
+	/** Number of units still missing (requirement quantity minus owned); the total cost is price * qty. */
+	int qty;
+	/** True when the data states a price for this shop source. */
+	boolean priced;
 }

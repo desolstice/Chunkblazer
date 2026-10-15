@@ -129,6 +129,30 @@ class TransportModelTest
 		PlayerState s = PlayerState.builder().level("MAGIC", 30).chunk(VARROCK).build().withUnlock("TELEPORT:Varrock Teleport");
 		List<UsableEdge> e = model().usable(s, Collections.emptySet(), false);
 		assertEquals(UsableEdge.Availability.AVAILABLE, e.get(0).getAvailability());
+		assertEquals(8, e.get(0).getTicks());
+	}
+
+	@Test
+	void onlyUnpricedShopIsFlaggedUnpriced()
+	{
+		String items = "{\"schema\":1,\"items\":[{\"id\":554,\"name\":\"Fire rune\",\"sources\":[{\"type\":\"SHOP\",\"shop\":\"Unpriced\"}]}]}";
+		Acquisition a = build(TELE, items, null).usable(state(30, false), Collections.emptySet(), true).get(0).getAcquisition();
+		assertEquals(false, a.isPriced());
+		assertEquals(1, a.getQty());
+		Acquisition priced = model().usable(state(30, false), Collections.emptySet(), true).get(0).getAcquisition();
+		assertTrue(priced.isPriced());
+	}
+
+	@Test
+	void missingQuantityIsReported()
+	{
+		String t = edges(edge("e", TO_VARROCK, "{\"items\":[{\"ids\":[554],\"qty\":5}]}"));
+		PlayerState has2 = PlayerState.builder().chunk(VARROCK).item(554, 2).build();
+		Acquisition a = build(t, ITEMS, LOCS).usable(has2, Collections.emptySet(), true).get(0).getAcquisition();
+		assertEquals(3, a.getQty());
+		assertEquals(17, a.getPrice());
+		Acquisition none = build(t, ITEMS, LOCS).usable(state(1, false), Collections.emptySet(), true).get(0).getAcquisition();
+		assertEquals(5, none.getQty());
 	}
 
 	@Test

@@ -198,7 +198,7 @@ public final class TransportModel
 			{
 				continue;
 			}
-			Acquisition a = includeAcquirable ? cheapestShop(r, (int) Math.min(Integer.MAX_VALUE, r.getQty() - owned)) : null;
+			Acquisition a = includeAcquirable ? cheapestShop(s, r, (int) Math.min(Integer.MAX_VALUE, r.getQty() - owned)) : null;
 			if (a == null)
 			{
 				return null;
@@ -216,8 +216,9 @@ public final class TransportModel
 		return (int) Math.min(t, TravelConfig.INF);
 	}
 
-	/** Cheapest SHOP source across the any-of item ids; ties broken by shop name then item id. Null if none. */
-	private Acquisition cheapestShop(Requirements.ItemReq r, int missingQty)
+	/** Cheapest SHOP source across the any-of item ids; ties broken by shop name then item id. Shops whose known location lies in a locked chunk
+	 * are skipped; shops with no known location are kept (the Acquisition has a null shopTile). Null if none. */
+	private Acquisition cheapestShop(PlayerState s, Requirements.ItemReq r, int missingQty)
 	{
 		Integer bestItem = null;
 		ItemDef.Source best = null;
@@ -240,6 +241,11 @@ public final class TransportModel
 			for (ItemDef.Source src : def.getSources())
 			{
 				if (src == null || !"SHOP".equalsIgnoreCase(src.getType()) || src.getShop() == null)
+				{
+					continue;
+				}
+				Tile st = shopTile(src.getShop());
+				if (st != null && !s.hasUnlockedChunk(TileMath.regionId(st.getX(), st.getY())))
 				{
 					continue;
 				}

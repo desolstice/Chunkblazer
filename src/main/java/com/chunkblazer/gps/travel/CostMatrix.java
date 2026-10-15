@@ -67,9 +67,12 @@ public final class CostMatrix
 	private final int[][] hubToNode;
 	private final boolean[] valid;
 	private final int[][] walkDirect;
+	private final Map<String, UsableEdge> edgeById;
+	private final Map<String, Integer> nodeIndex;
 
 	private CostMatrix(int n, int[][] cost, int hubCount, int vertexCount, int anywhere, int[][] hubDist, int[][] next,
-		String[][] arcId, int[][] nodeToHub, int[][] hubToNode, boolean[] valid, int[][] walkDirect)
+		String[][] arcId, int[][] nodeToHub, int[][] hubToNode, boolean[] valid, int[][] walkDirect,
+		Map<String, UsableEdge> edgeById, Map<String, Integer> nodeIndex)
 	{
 		this.n = n;
 		this.cost = cost;
@@ -83,6 +86,8 @@ public final class CostMatrix
 		this.hubToNode = hubToNode;
 		this.valid = valid;
 		this.walkDirect = walkDirect;
+		this.edgeById = edgeById;
+		this.nodeIndex = nodeIndex;
 	}
 
 	private static int add(int a, int b)
@@ -284,7 +289,22 @@ public final class CostMatrix
 				cost[i][j] = best;
 			}
 		}
-		return new CostMatrix(n, cost, h, v, any, t, nxt, ids, toHub, fromHub, valid, direct);
+		Map<String, UsableEdge> byId = new HashMap<>();
+		for (UsableEdge u : usable)
+		{
+			byId.putIfAbsent(u.getEdge().getId(), u);
+		}
+		Map<String, Integer> nodeIdx = new HashMap<>();
+		for (int i = 0; i < n; i++)
+		{
+			TravelNode node = nodes.get(i);
+			if (node != null && node.getId() != null)
+			{
+				nodeIdx.putIfAbsent(node.getId(), i);
+			}
+		}
+		return new CostMatrix(n, cost, h, v, any, t, nxt, ids, toHub, fromHub, valid, direct,
+			Collections.unmodifiableMap(byId), Collections.unmodifiableMap(nodeIdx));
 	}
 
 	/** Keeps the cheaper arc between two vertices; ties keep the first (edges arrive sorted by id). */
@@ -305,6 +325,33 @@ public final class CostMatrix
 	public int size()
 	{
 		return n;
+	}
+
+	/** Index of the first node with this id, or -1. */
+	public int indexOf(String nodeId)
+	{
+		Integer i = nodeId == null ? null : nodeIndex.get(nodeId);
+		return i == null ? -1 : i;
+	}
+
+	public boolean isReachable(int i, int j)
+	{
+		return cost[i][j] < INF;
+	}
+
+	/** The usable edges (with their acquisitions) on the cheapest i to j trip, in travel order. */
+	public List<UsableEdge> routeEdges(int i, int j)
+	{
+		List<UsableEdge> out = new ArrayList<>();
+		for (String id : route(i, j))
+		{
+			UsableEdge u = edgeById.get(id);
+			if (u != null)
+			{
+				out.add(u);
+			}
+		}
+		return out;
 	}
 
 	/** Ticks to travel from node i to node j; INF when unreachable. Throws on out-of-range indices. */

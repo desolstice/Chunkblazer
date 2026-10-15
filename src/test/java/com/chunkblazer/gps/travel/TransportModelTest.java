@@ -267,6 +267,26 @@ class TransportModelTest
 	}
 
 	@Test
+	void shopInLockedChunkIsSkippedInFavourOfReachableOne()
+	{
+		String items = "{\"schema\":1,\"items\":[{\"id\":554,\"name\":\"Fire rune\",\"sources\":["
+			+ "{\"type\":\"SHOP\",\"shop\":\"Locked\",\"price\":1},{\"type\":\"SHOP\",\"shop\":\"Aubury's Rune Shop\",\"price\":17}]}]}";
+		String locs = "{\"schema\":1,\"entries\":[{\"name\":\"Locked\",\"kind\":\"SHOP\",\"ids\":[],\"x\":100,\"y\":100,\"plane\":0},"
+			+ "{\"name\":\"Aubury's Rune Shop\",\"kind\":\"SHOP\",\"ids\":[],\"x\":3253,\"y\":3401,\"plane\":0}]}";
+		UsableEdge u = build(TELE, items, locs).usable(state(30, false), Collections.emptySet(), true).get(0);
+		assertEquals("Aubury's Rune Shop", u.getAcquisition().getShop());
+	}
+
+	@Test
+	void onlyShopInLockedChunkExcludesEdge()
+	{
+		String items = "{\"schema\":1,\"items\":[{\"id\":554,\"name\":\"Fire rune\",\"sources\":["
+			+ "{\"type\":\"SHOP\",\"shop\":\"Locked\",\"price\":1}]}]}";
+		String locs = "{\"schema\":1,\"entries\":[{\"name\":\"Locked\",\"kind\":\"SHOP\",\"ids\":[],\"x\":100,\"y\":100,\"plane\":0}]}";
+		assertTrue(build(TELE, items, locs).usable(state(30, false), Collections.emptySet(), true).isEmpty());
+	}
+
+	@Test
 	void cheapestShopPicked()
 	{
 		String items = "{\"schema\":1,\"items\":[{\"id\":554,\"name\":\"Fire rune\",\"sources\":["

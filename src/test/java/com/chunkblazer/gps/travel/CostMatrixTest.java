@@ -134,6 +134,19 @@ class CostMatrixTest
 	}
 
 	@Test
+	void routeEdgesIndexOfAndReachabilityHelpers()
+	{
+		CostMatrix tele = build(TELE, true);
+		assertEquals(1, tele.indexOf("B"));
+		assertEquals(-1, tele.indexOf("nope"));
+		assertEquals(-1, tele.indexOf(null));
+		assertEquals(1, tele.routeEdges(0, 1).size());
+		assertEquals("tele", tele.routeEdges(0, 1).get(0).getEdge().getId());
+		assertTrue(tele.isReachable(0, 1));
+		assertTrue(!build(null, false).isReachable(0, 1));
+	}
+
+	@Test
 	void unknownTileNodeIsUnroutable()
 	{
 		List<TravelNode> nodes = Arrays.asList(new TravelNode("A", t(3200, 3200)), new TravelNode("X", null));

@@ -77,6 +77,47 @@ class BankCacheTest
 	}
 
 	@Test
+	void staleReloadStartedUnderAIsNotPublishedAfterSwitchToB()
+	{
+		BankCacheStore store = new BankCacheStore(
+			k ->
+			{
+				String stored = accounts.getOrDefault(active, Collections.emptyMap()).get(k);
+				active = "B";
+				return stored;
+			},
+			(k, v) -> accounts.computeIfAbsent(active, a -> new HashMap<>()).put(k, v),
+			() -> true);
+		BankCache c = new BankCache(store, () -> active);
+		active = "A";
+		c.updateTask(Collections.singletonMap(554, 9)).run();
+		c.clear();
+		active = "A";
+		c.reload();
+		assertTrue(c.items().isEmpty());
+		active = "A";
+		assertTrue(c.items().isEmpty());
+	}
+
+	@Test
+	void staleReloadDoesNotClobberFresherUpdate()
+	{
+		BankCache[] holder = new BankCache[1];
+		BankCacheStore store = new BankCacheStore(
+			k ->
+			{
+				holder[0].updateTask(Collections.singletonMap(1, 5));
+				return null;
+			},
+			(k, v) -> { },
+			() -> true);
+		active = "A";
+		holder[0] = new BankCache(store, () -> active);
+		holder[0].reload();
+		assertEquals(5, (int) holder[0].items().get(1));
+	}
+
+	@Test
 	void noAccountMeansNothingCachedOrSaved()
 	{
 		BankCache c = cache();

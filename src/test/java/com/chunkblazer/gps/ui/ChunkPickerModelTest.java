@@ -87,6 +87,22 @@ class ChunkPickerModelTest
 	}
 
 	@Test
+	void singleRegionChunkKeepsPlainName()
+	{
+		NuzlockeChunk c = new NuzlockeChunk();
+		c.setRegionIds(Collections.singletonList(12850));
+		c.setFriendlyName("Lumbridge");
+		ChunkPickerModel m = ChunkPickerModel.fromChunks(Collections.singletonList(c));
+		assertEquals("Lumbridge", m.filter("", null).get(0).getName());
+	}
+
+	@Test
+	void ofNullBehavesAsEmpty()
+	{
+		assertEquals(0, ChunkPickerModel.of(null).count());
+	}
+
+	@Test
 	void fromChunksOneEntryPerRegionWithFallbackName()
 	{
 		NuzlockeChunk named = new NuzlockeChunk();
@@ -99,7 +115,8 @@ class ChunkPickerModelTest
 
 		ChunkPickerModel m = ChunkPickerModel.fromChunks(Arrays.asList(named, unnamed));
 		assertEquals(3, m.count());
-		assertEquals("Lumbridge", m.filter("12851", null).get(0).getName());
+		assertEquals("Lumbridge (12851)", m.filter("12851", null).get(0).getName());
+		assertEquals("Lumbridge (12850)", m.filter("12850", null).get(0).getName());
 		assertEquals("Region 11828", m.filter("11828", null).get(0).getName());
 		assertEquals(Arrays.asList("Asgarnia", "Misthalin"), m.areas());
 	}

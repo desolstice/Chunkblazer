@@ -59,6 +59,7 @@ import net.runelite.api.Client;
 import java.util.Collection;
 import java.util.Collections;
 import net.runelite.api.GameState;
+import net.runelite.api.Item;
 import net.runelite.api.MenuAction;
 import net.runelite.api.Player;
 import net.runelite.api.Skill;
@@ -524,6 +525,7 @@ public class ChunkBlazerPlugin extends Plugin
 			gpsModule.stop();
 			gpsModule = null;
 		}
+		gpsBankCache.clear();
 		clientToolbar.removeNavigation(navButton);
 		setModeReady(false);
 		taskModuleManager.shutDown();
@@ -841,6 +843,24 @@ public class ChunkBlazerPlugin extends Plugin
 		}
 	}
 
+	@Subscribe
+	public void onItemContainerChanged(ItemContainerChanged event)
+	{
+		if (event.getContainerId() != InventoryID.BANK || event.getItemContainer() == null)
+		{
+			return;
+		}
+		Map<Integer, Integer> bank = new HashMap<>();
+		for (Item item : event.getItemContainer().getItems())
+		{
+			if (item.getId() > 0 && item.getQuantity() > 0)
+			{
+				bank.merge(itemManager.canonicalize(item.getId()), item.getQuantity(), Integer::sum);
+			}
+		}
+		executorService.execute(gpsBankCache.updateTask(bank));
+	}
+
 	/**
 	 * "We now know which account is playing" — and, on a switch, "we now know it
 	 * is a different one". Posted by ConfigManager whenever the RS profile key
@@ -858,24 +878,6 @@ public class ChunkBlazerPlugin extends Plugin
 	 * unconditionally: the logout edge fires this too, and bootstrapping into a
 	 * null profile is exactly the account-less write being eliminated.
 	 */
-	@Subscribe
-	public void onItemContainerChanged(ItemContainerChanged event)
-	{
-		if (event.getContainerId() != InventoryID.BANK || event.getItemContainer() == null)
-		{
-			return;
-		}
-		java.util.Map<Integer, Integer> bank = new java.util.HashMap<>();
-		for (net.runelite.api.Item item : event.getItemContainer().getItems())
-		{
-			if (item.getId() > 0 && item.getQuantity() > 0)
-			{
-				bank.merge(itemManager.canonicalize(item.getId()), item.getQuantity(), Integer::sum);
-			}
-		}
-		executorService.execute(gpsBankCache.updateTask(bank));
-	}
-
 	@Subscribe
 	public void onRuneScapeProfileChanged(RuneScapeProfileChanged event)
 	{

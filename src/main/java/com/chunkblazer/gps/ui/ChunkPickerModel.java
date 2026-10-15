@@ -36,7 +36,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
-/** Filterable, selectable list of regions for the simulate-mode chunk picker. Swing-free. */
+/** Filterable, selectable list of regions for the simulate-mode chunk picker. Swing-free; EDT-only (not thread-safe). */
 public class ChunkPickerModel
 {
 	public static final String ALL_AREAS = "All";
@@ -53,6 +53,10 @@ public class ChunkPickerModel
 	public static ChunkPickerModel of(List<ChunkEntry> entries)
 	{
 		Map<Integer, ChunkEntry> byId = new LinkedHashMap<>();
+		if (entries == null)
+		{
+			return new ChunkPickerModel(byId);
+		}
 		for (ChunkEntry e : entries)
 		{
 			byId.putIfAbsent(e.getRegionId(), e);
@@ -60,7 +64,10 @@ public class ChunkPickerModel
 		return new ChunkPickerModel(byId);
 	}
 
-	/** One entry per region id of each chunk; name is the friendly name or "Region &lt;id&gt;". */
+	/**
+	 * One entry per region id of each chunk; name is the friendly name or "Region &lt;id&gt;", suffixed
+	 * " (id)" when the chunk spans several regions. EDT-only.
+	 */
 	public static ChunkPickerModel fromChunks(Collection<NuzlockeChunk> chunks)
 	{
 		List<ChunkEntry> list = new ArrayList<>();
@@ -82,6 +89,10 @@ public class ChunkPickerModel
 					continue;
 				}
 				String name = friendly != null && !friendly.isEmpty() ? friendly : "Region " + id;
+				if (chunk.getRegionIds().size() > 1 && friendly != null && !friendly.isEmpty())
+				{
+					name = friendly + " (" + id + ")";
+				}
 				list.add(new ChunkEntry(id, name, chunk.getArea()));
 			}
 		}

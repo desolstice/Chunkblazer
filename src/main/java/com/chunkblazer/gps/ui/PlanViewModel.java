@@ -203,8 +203,8 @@ public final class PlanViewModel
 		}
 		if (seconds < 3600)
 		{
-			return (seconds / 60) + "m " + String.format("%02d", seconds % 60) + "s";
+			return (seconds / 60) + "m " + String.format(Locale.ROOT, "%02d", seconds % 60) + "s";
 		}
-		return (seconds / 3600) + "h " + String.format("%02d", (seconds % 3600) / 60) + "m";
+		return (seconds / 3600) + "h " + String.format(Locale.ROOT, "%02d", (seconds % 3600) / 60) + "m";
 	}
 }

@@ -29,6 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ReplanTriggerTest
 {
@@ -81,6 +82,23 @@ class ReplanTriggerTest
 		t.finished();
 		t.tick();
 		assertEquals(2, runs.get());
+	}
+
+	@Test
+	void throwingActionClearsInFlightMarksDirtyAndRethrows()
+	{
+		AtomicInteger calls = new AtomicInteger();
+		ReplanTrigger t = new ReplanTrigger(clock::get, 1500, () ->
+		{
+			if (calls.incrementAndGet() == 1)
+			{
+				throw new IllegalStateException("boom");
+			}
+		});
+		assertThrows(IllegalStateException.class, t::request);
+		clock.set(2000);
+		t.tick();
+		assertEquals(2, calls.get());
 	}
 
 	@Test

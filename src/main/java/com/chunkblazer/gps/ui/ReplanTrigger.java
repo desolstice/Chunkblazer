@@ -30,7 +30,8 @@ import java.util.function.LongSupplier;
 /**
  * Debounced, single-flight trigger for re-planning. Bursts of {@link #request()} calls collapse
  * into at most one run per window, and two runs never overlap: the action must call
- * {@link #finished()} when planning completes.
+ * {@link #finished()} when planning completes. The action must be a quick submit (hand the work to an
+ * executor and return) and that executor task must call {@code finished()} in a {@code finally}.
  */
 public class ReplanTrigger
 {
@@ -63,11 +64,14 @@ public class ReplanTrigger
 		}
 		if (run)
 		{
-			action.run();
+			runAction();
 		}
 	}
 
-	/** Periodic poll: runs a pending request once the window has elapsed. */
+	/**
+	 * Periodic poll: runs a pending request once the window has elapsed. The owner must schedule this
+	 * (for example once a second) or a request blocked by the window or an in-flight run never fires.
+	 */
 	public void tick()
 	{
 		boolean run;
@@ -77,14 +81,32 @@ public class ReplanTrigger
 		}
 		if (run)
 		{
-			action.run();
+			runAction();
 		}
 	}
 
-	/** Must be called by the action when a run completes. */
+	/** Called by the executor task in a {@code finally} when a run completes. */
 	public synchronized void finished()
 	{
 		inFlight = false;
+	}
+
+	/** If the action throws, the run is considered over and the request is kept for a retry. */
+	private void runAction()
+	{
+		try
+		{
+			action.run();
+		}
+		catch (RuntimeException | Error ex)
+		{
+			synchronized (this)
+			{
+				inFlight = false;
+				dirty = true;
+			}
+			throw ex;
+		}
 	}
 
 	/** Caller holds the lock. */

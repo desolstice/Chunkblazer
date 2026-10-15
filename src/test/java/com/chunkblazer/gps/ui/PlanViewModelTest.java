@@ -80,6 +80,25 @@ class PlanViewModelTest
 	}
 
 	@Test
+	void questBadgeWithGapUsesHighestStepIndexAsTotal()
+	{
+		Plan p = new Plan(Arrays.asList(
+			step(1, NodeType.QUEST_STEP, "a", 1, "COOKS_ASSISTANT", 0, false),
+			step(2, NodeType.QUEST_STEP, "b", 1, "COOKS_ASSISTANT", 3, false)), 2, Collections.emptyList(), "v1");
+		assertEquals("Cooks Assistant 2/4", PlanViewModel.build(p, null, "v1").getRows().get(0).getBadge());
+	}
+
+	@Test
+	void questNameFunctionOverridesTitleCasedId()
+	{
+		Plan p = new Plan(Arrays.asList(
+			step(1, NodeType.QUEST_STEP, "a", 1, "COOKS_ASSISTANT", 0, false)), 1, Collections.emptyList(), "v1");
+		assertEquals("Cook's Assistant 1/1", PlanViewModel.build(p, null, "v1",
+			id -> "COOKS_ASSISTANT".equals(id) ? "Cook's Assistant" : null).getRows().get(0).getBadge());
+		assertEquals("Cooks Assistant 1/1", PlanViewModel.build(p, null, "v1", id -> null).getRows().get(0).getBadge());
+	}
+
+	@Test
 	void subtitleShowsReasonAndApproximateSuffix()
 	{
 		Plan p = new Plan(Arrays.asList(step(1, NodeType.TASK, "x", 5, null, null, true)), 5, Collections.emptyList(), "v1");

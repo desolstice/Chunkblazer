@@ -25,6 +25,7 @@
  */
 package com.chunkblazer.gps.adapter;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -35,9 +36,26 @@ import java.util.function.Supplier;
  */
 public final class BankCache
 {
+	/** Snapshot tagged with the account key it belongs to; immutable so one volatile read is consistent. */
+	private static final class Held
+	{
+		private static final Held NONE = new Held(null, BankSnapshot.empty());
+
+		private final String key;
+		private final BankSnapshot snapshot;
+
+		private Held(String key, BankSnapshot snapshot)
+		{
+			this.key = key;
+			this.snapshot = snapshot;
+		}
+	}
+
 	private final BankCacheStore store;
 	private final Supplier<String> accountKey;
-	private volatile BankSnapshot snapshot = BankSnapshot.empty();
+	private volatile Held held = Held.NONE;
+	/** Bumped by every live update or clear; a reload only publishes if nothing newer happened. */
+	private long version;
 
 	public BankCache(BankCacheStore store, Supplier<String> accountKey)
 	{
@@ -45,22 +63,45 @@ public final class BankCache
 		this.accountKey = accountKey;
 	}
 
-	/** Items for {@link PlayerStateProvider}; empty until a bank is seen or loaded for this account. */
+	/** Items for {@link PlayerStateProvider}; empty until a bank is seen or loaded for the current account. */
 	public Map<Integer, Integer> items()
 	{
-		return snapshot.asMap();
+		Held h = held;
+		String key = accountKey.get();
+		if (h.key == null || !h.key.equals(key))
+		{
+			return Collections.emptyMap();
+		}
+		return h.snapshot.asMap();
 	}
 
-	/** Re-reads the active account's stored bank (empty when no account). Call off the client thread. */
+	/**
+	 * Re-reads the active account's stored bank (empty when no account). Call off the client thread. A
+	 * reload that raced an account switch or a fresher {@link #updateTask} is discarded.
+	 */
 	public void reload()
 	{
-		snapshot = store.load();
+		final String key = accountKey.get();
+		final long startVersion;
+		synchronized (this)
+		{
+			startVersion = version;
+		}
+		final BankSnapshot loaded = store.load();
+		synchronized (this)
+		{
+			if (version == startVersion && key != null && key.equals(accountKey.get()))
+			{
+				held = new Held(key, loaded);
+			}
+		}
 	}
 
 	/** Drops the in-memory snapshot (account unavailable / module stopped). */
-	public void clear()
+	public synchronized void clear()
 	{
-		snapshot = BankSnapshot.empty();
+		version++;
+		held = Held.NONE;
 	}
 
 	/**
@@ -73,7 +114,11 @@ public final class BankCache
 		final BankSnapshot fresh = BankSnapshot.of(bank);
 		if (key != null)
 		{
-			snapshot = fresh;
+			synchronized (this)
+			{
+				version++;
+				held = new Held(key, fresh);
+			}
 		}
 		return () ->
 		{

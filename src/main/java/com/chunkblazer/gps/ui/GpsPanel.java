@@ -102,7 +102,13 @@ public class GpsPanel extends PluginPanel
 		this.planPanel = planPanel;
 		this.session = session;
 		this.simulatePanel = simulatePanel;
-		simulatePanel.setRealSource(() -> realState);
+		simulatePanel.setRealRequester(cb -> snapshotRequester.accept((state, freshModel) -> SwingUtilities.invokeLater(() ->
+		{
+			realState = state;
+			this.model = freshModel;
+			render();
+			cb.accept(state);
+		})));
 		setLayout(new BorderLayout());
 		setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
 		tasksTab.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));

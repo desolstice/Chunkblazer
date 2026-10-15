@@ -65,6 +65,7 @@ public class GpsPlanPanel extends JPanel
 	private final PlanHighlight highlight;
 	private final GpsData data;
 	private final Function<String, String> questName;
+	private final Runnable goalChangedReplan;
 
 	private final JComboBox<PlanRunner.GoalChoice> goalCombo = new JComboBox<>(PlanRunner.GoalChoice.values());
 	private final JComboBox<String> skillCombo = new JComboBox<>(GpsPanel.SKILLS);
@@ -82,12 +83,13 @@ public class GpsPlanPanel extends JPanel
 	private int selected = -1;
 	private boolean active;
 
-	public GpsPlanPanel(Runnable planNow, PlanHighlight highlight, GpsData data, Function<String, String> questName)
+	public GpsPlanPanel(Runnable planNow, Runnable goalChangedReplan, PlanHighlight highlight, GpsData data, Function<String, String> questName)
 	{
 		super(new BorderLayout());
 		this.highlight = highlight;
 		this.data = data;
 		this.questName = questName;
+		this.goalChangedReplan = goalChangedReplan;
 
 		JPanel top = new JPanel();
 		top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
@@ -144,6 +146,10 @@ public class GpsPlanPanel extends JPanel
 		PlanRunner.GoalChoice choice = (PlanRunner.GoalChoice) goalCombo.getSelectedItem();
 		skillRow.setVisible(choice == PlanRunner.GoalChoice.TRAIN_SKILL);
 		goal = PlanRunner.goalFor(choice, (String) skillCombo.getSelectedItem(), (Integer) levelSpinner.getValue());
+		if (auto)
+		{
+			goalChangedReplan.run();
+		}
 	}
 
 	/** Shows a planner result (or the log-in message). EDT only. */

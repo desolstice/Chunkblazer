@@ -289,7 +289,7 @@ public class ChunkBlazerPlugin extends Plugin
 	@Getter
 	private ChunkBlazerPanel panel;
 	private NavigationButton navButton;
-	private GpsModule gpsModule;
+	private volatile GpsModule gpsModule;
 	@Getter
 	private final PlanHighlight planHighlight = new PlanHighlight();
 

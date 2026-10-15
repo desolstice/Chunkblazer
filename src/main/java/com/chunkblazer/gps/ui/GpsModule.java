@@ -210,7 +210,7 @@ public final class GpsModule
 				log.warn("GPS snapshot failed", ex);
 			}
 		});
-		planPanel = new GpsPlanPanel(trigger::requestNow, highlight, data,
+		planPanel = new GpsPlanPanel(trigger::requestNow, trigger::request, highlight, data,
 			id -> quests.get(id).map(QuestModel::getName).orElse(null));
 		SimulatePanel simulatePanel = new SimulatePanel(simulation, data, quests, sources.chunks,
 			sources.freeRegion, trigger::requestNow);

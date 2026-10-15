@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.function.Consumer;
 import java.util.function.IntPredicate;
 import java.util.function.Supplier;
 import javax.swing.BorderFactory;
@@ -78,7 +79,7 @@ public class SimulatePanel extends JPanel
 	private final Runnable replan;
 	private final JButton copy = new JButton("Copy my real account");
 	private List<NuzlockeChunk> pickerChunks;
-	private Supplier<PlayerState> realSource = PlayerState::freshAccount;
+	private Consumer<Consumer<PlayerState>> realRequester = cb -> cb.accept(PlayerState.freshAccount());
 
 	private final JLabel status = new JLabel("Not simulating. Pick a starting point.");
 	private final JPanel editors = new JPanel();
@@ -116,6 +117,8 @@ public class SimulatePanel extends JPanel
 		this.chunkSource = chunkSource;
 		this.freeRegion = freeRegion;
 		this.replan = replan;
+		copy.setEnabled(false);
+		copy.setToolTipText("Log in to copy your real account");
 		setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
 
 		JPanel top = new JPanel();
@@ -154,10 +157,13 @@ public class SimulatePanel extends JPanel
 		add(scroll, BorderLayout.CENTER);
 	}
 
-	/** Where "Copy my real account" reads the real state from. EDT only. */
-	public void setRealSource(Supplier<PlayerState> real)
+	/**
+	 * How "Copy my real account" obtains a fresh real snapshot: the requester takes a callback that is invoked on the
+	 * EDT once the snapshot has landed. EDT only.
+	 */
+	public void setRealRequester(Consumer<Consumer<PlayerState>> requester)
 	{
-		this.realSource = real;
+		this.realRequester = requester;
 	}
 
 	/** Enables "Copy my real account" only while a real character is logged in (else it would copy a bogus state). */
@@ -181,8 +187,11 @@ public class SimulatePanel extends JPanel
 		{
 			return;
 		}
-		session.startFromReal(realSource.get());
-		afterStart();
+		realRequester.accept(real ->
+		{
+			session.startFromReal(real);
+			afterStart();
+		});
 	}
 
 	private void afterStart()
@@ -277,10 +286,12 @@ public class SimulatePanel extends JPanel
 		}
 		List<ChunkEntry> visible = visibleChunks();
 		picker.setAll(visible, on);
+		List<Integer> ids = new ArrayList<>();
 		for (ChunkEntry e : visible)
 		{
-			session.setChunk(e.getRegionId(), on);
+			ids.add(e.getRegionId());
 		}
+		session.setChunks(ids, on);
 		renderChunks();
 	}
 

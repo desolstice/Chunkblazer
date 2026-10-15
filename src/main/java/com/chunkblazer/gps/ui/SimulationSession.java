@@ -102,6 +102,21 @@ public final class SimulationSession
 		edit(s -> s.setChunk(regionId, unlocked));
 	}
 
+	/** Sets (or clears) many chunks at once; the listener fires once, not per chunk. */
+	public void setChunks(Collection<Integer> regionIds, boolean unlocked)
+	{
+		edit(s ->
+		{
+			for (Integer r : regionIds)
+			{
+				if (r != null)
+				{
+					s.setChunk(r, unlocked);
+				}
+			}
+		});
+	}
+
 	public void setItem(int id, int qty)
 	{
 		edit(s -> s.setItem(id, qty));

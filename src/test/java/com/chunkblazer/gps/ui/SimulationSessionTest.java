@@ -86,6 +86,23 @@ class SimulationSessionTest
 	}
 
 	@Test
+	void setChunksBatchFiresListenerOnce()
+	{
+		SimulationSession s = new SimulationSession();
+		s.startFresh(Collections.emptyList());
+		AtomicInteger changes = new AtomicInteger();
+		s.setListener(changes::incrementAndGet);
+		s.setChunks(Arrays.asList(1, 2, 3), true);
+		assertEquals(1, changes.get());
+		assertTrue(s.view().hasUnlockedChunk(1));
+		assertTrue(s.view().hasUnlockedChunk(3));
+		s.setChunks(Arrays.asList(1, 2), false);
+		assertEquals(2, changes.get());
+		assertFalse(s.view().hasUnlockedChunk(2));
+		assertTrue(s.view().hasUnlockedChunk(3));
+	}
+
+	@Test
 	void copyFromRealThenStopClearsView()
 	{
 		SimulationSession s = new SimulationSession();

@@ -89,7 +89,9 @@ public class GpsPanel extends PluginPanel
 	private final JTabbedPane tabs = new JTabbedPane();
 	private final GpsPlanPanel planPanel;
 
+	private final SimulatePanel simulatePanel;
 	private PlayerState realState = PlayerState.freshAccount();
+	private boolean loggedIn = true;
 
 	public GpsPanel(GpsPanelModel model, GpsData data, Consumer<BiConsumer<PlayerState, GpsPanelModel>> snapshotRequester,
 		GpsPlanPanel planPanel, SimulatePanel simulatePanel, SimulationSession session)
@@ -99,6 +101,7 @@ public class GpsPanel extends PluginPanel
 		this.snapshotRequester = snapshotRequester;
 		this.planPanel = planPanel;
 		this.session = session;
+		this.simulatePanel = simulatePanel;
 		simulatePanel.setRealSource(() -> realState);
 		setLayout(new BorderLayout());
 		setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
@@ -128,7 +131,11 @@ public class GpsPanel extends PluginPanel
 		top.add(modeRow);
 
 		String status = data == null || data.getStatus() == null ? "GPS data status unavailable." : data.getStatus().describe();
-		top.add(wrapped(status, ColorScheme.LIGHT_GRAY_COLOR));
+		if (help.isEmpty())
+		{
+			// The banner already carries the status text when the data is incomplete.
+			top.add(wrapped(status, ColorScheme.LIGHT_GRAY_COLOR));
+		}
 
 		JPanel boxes = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
 		for (JCheckBox b : new JCheckBox[]{doableBox, blockedBox, unknownBox, questsBox})
@@ -320,6 +327,8 @@ public class GpsPanel extends PluginPanel
 	/** Shows a hint while real mode has no logged-in character to read. EDT only. */
 	public void setLoggedIn(boolean loggedIn)
 	{
+		this.loggedIn = loggedIn;
 		loginHint.setVisible(!loggedIn);
+		simulatePanel.setRealAvailable(loggedIn);
 	}
 }

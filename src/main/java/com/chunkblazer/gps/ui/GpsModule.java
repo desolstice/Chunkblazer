@@ -41,7 +41,6 @@ import com.chunkblazer.gps.model.QuestCatalog;
 import com.chunkblazer.gps.model.QuestHelperEntry;
 import com.chunkblazer.gps.model.QuestModel;
 import com.chunkblazer.gps.plan.GoalMode;
-import com.chunkblazer.gps.plan.TaskRef;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -211,10 +210,10 @@ public final class GpsModule
 				log.warn("GPS snapshot failed", ex);
 			}
 		});
-		planPanel = new GpsPlanPanel(trigger::request, highlight, data,
+		planPanel = new GpsPlanPanel(trigger::requestNow, highlight, data,
 			id -> quests.get(id).map(QuestModel::getName).orElse(null));
-		SimulatePanel simulatePanel = new SimulatePanel(simulation, data, quests, () -> new ArrayList<>(sources.chunks.get()),
-			sources.freeRegion);
+		SimulatePanel simulatePanel = new SimulatePanel(simulation, data, quests, sources.chunks,
+			sources.freeRegion, trigger::requestNow);
 		GpsPanel gpsPanel = new GpsPanel(model, data, requester, planPanel, simulatePanel, simulation);
 		panel = gpsPanel;
 		simulation.setListener(() ->
@@ -312,9 +311,11 @@ public final class GpsModule
 			WorldPoint wp = me.getWorldLocation();
 			position = new Tile(wp.getX(), wp.getY(), wp.getPlane(), false, "PLAYER");
 		}
-		List<NuzlockeChunk> chunks = new ArrayList<>(sources.chunks.get());
-		List<TaskRef> refs = PlanRunner.taskRefs(chunks, sources.globalTasks.get(), state, sources.unlockCost);
-		return new PlanRunner.Inputs(state, position, refs, new HashSet<>(sources.completedTaskIds.get()), chunks);
+		// Raw copies only: task refs are built off the client thread from these.
+		List<NuzlockeChunk> chunks = sources.chunks.get();
+		Set<String> completed = sim != null ? Collections.<String>emptySet() : new HashSet<>(sources.completedTaskIds.get());
+		return new PlanRunner.Inputs(state, position, chunks, new ArrayList<>(sources.globalTasks.get()),
+			PlanRunner.unlockCosts(chunks, sources.unlockCost), completed);
 	}
 
 	private void planOffThread(PlanRunner r, GpsPlanPanel pp, boolean simulate, boolean loggedIn,
@@ -323,16 +324,25 @@ public final class GpsModule
 		try
 		{
 			PlanRunner.Result result = r.run(simulate, loggedIn, in, goal);
-			SwingUtilities.invokeLater(() -> pp.show(result));
+			SwingUtilities.invokeLater(() -> showIfRunning(pp, result));
 		}
 		catch (RuntimeException | StackOverflowError ex)
 		{
 			log.warn("GPS planning failed", ex);
-			SwingUtilities.invokeLater(() -> pp.show(new PlanRunner.Result(null, "Planning failed: " + ex)));
+			SwingUtilities.invokeLater(() -> showIfRunning(pp, new PlanRunner.Result(null, "Planning failed: " + ex)));
 		}
 		finally
 		{
 			trigger.finished();
+		}
+	}
+
+	// EDT: a result that arrives after stop() must not bring the highlight back.
+	private void showIfRunning(GpsPlanPanel pp, PlanRunner.Result result)
+	{
+		if (!stopped)
+		{
+			pp.show(result);
 		}
 	}
 
@@ -345,9 +355,14 @@ public final class GpsModule
 		{
 			t.cancel(false);
 		}
-		highlight.clear();
 		SwingUtilities.invokeLater(() ->
 		{
+			GpsPlanPanel pp = planPanel;
+			if (pp != null)
+			{
+				pp.tabHidden();
+			}
+			highlight.clear();
 			if (button != null)
 			{
 				clientToolbar.removeNavigation(button);

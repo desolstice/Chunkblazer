@@ -75,6 +75,9 @@ public class SimulatePanel extends JPanel
 	private final QuestCatalog quests;
 	private final Supplier<List<NuzlockeChunk>> chunkSource;
 	private final IntPredicate freeRegion;
+	private final Runnable replan;
+	private final JButton copy = new JButton("Copy my real account");
+	private List<NuzlockeChunk> pickerChunks;
 	private Supplier<PlayerState> realSource = PlayerState::freshAccount;
 
 	private final JLabel status = new JLabel("Not simulating. Pick a starting point.");
@@ -104,7 +107,7 @@ public class SimulatePanel extends JPanel
 	private final JList<String> ownedList = new JList<>(ownedModel);
 
 	public SimulatePanel(SimulationSession session, GpsData data, QuestCatalog quests,
-		Supplier<List<NuzlockeChunk>> chunkSource, IntPredicate freeRegion)
+		Supplier<List<NuzlockeChunk>> chunkSource, IntPredicate freeRegion, Runnable replan)
 	{
 		super(new BorderLayout());
 		this.session = session;
@@ -112,6 +115,7 @@ public class SimulatePanel extends JPanel
 		this.quests = quests;
 		this.chunkSource = chunkSource;
 		this.freeRegion = freeRegion;
+		this.replan = replan;
 		setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
 
 		JPanel top = new JPanel();
@@ -119,13 +123,14 @@ public class SimulatePanel extends JPanel
 		JPanel starts = new JPanel(new GridLayout(0, 1, 0, 2));
 		JButton fresh = new JButton("Brand-new account");
 		fresh.addActionListener(e -> startFresh());
-		JButton copy = new JButton("Copy my real account");
 		copy.addActionListener(e -> startFromReal());
 		JButton stop = new JButton("Stop simulating");
 		stop.addActionListener(e ->
 		{
 			session.stop();
 			updateStatus();
+			// The listener only re-plans on auto; a stale simulated plan must not linger.
+			replan.run();
 		});
 		starts.add(fresh);
 		starts.add(copy);
@@ -155,6 +160,13 @@ public class SimulatePanel extends JPanel
 		this.realSource = real;
 	}
 
+	/** Enables "Copy my real account" only while a real character is logged in (else it would copy a bogus state). */
+	public void setRealAvailable(boolean available)
+	{
+		copy.setEnabled(available);
+		copy.setToolTipText(available ? null : "Log in to copy your real account");
+	}
+
 	private void startFresh()
 	{
 		ensurePicker();
@@ -165,6 +177,10 @@ public class SimulatePanel extends JPanel
 	private void startFromReal()
 	{
 		ensurePicker();
+		if (!copy.isEnabled())
+		{
+			return;
+		}
 		session.startFromReal(realSource.get());
 		afterStart();
 	}
@@ -173,6 +189,7 @@ public class SimulatePanel extends JPanel
 	{
 		syncFromSession();
 		updateStatus();
+		replan.run();
 	}
 
 	private void updateStatus()
@@ -183,11 +200,14 @@ public class SimulatePanel extends JPanel
 
 	private void ensurePicker()
 	{
-		if (picker != null)
+		List<NuzlockeChunk> chunks = chunkSource.get();
+		if (picker != null && chunks == pickerChunks)
 		{
 			return;
 		}
-		picker = ChunkPickerModel.fromChunks(chunkSource.get());
+		pickerChunks = chunks;
+		picker = ChunkPickerModel.fromChunks(chunks);
+		areaCombo.removeAllItems();
 		areaCombo.addItem(ChunkPickerModel.ALL_AREAS);
 		for (String a : picker.areas())
 		{

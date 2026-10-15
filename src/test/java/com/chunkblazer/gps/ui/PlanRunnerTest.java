@@ -62,7 +62,66 @@ class PlanRunnerTest
 
 	private static PlanRunner.Inputs inputs(PlayerState s)
 	{
-		return new PlanRunner.Inputs(s, null, Collections.emptyList(), Collections.emptySet(), Collections.emptyList());
+		return new PlanRunner.Inputs(s, null, Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(),
+			Collections.emptySet());
+	}
+
+	@Test
+	void runBuildsTaskRefsFromRawInputsUsingPrecomputedCosts()
+	{
+		PlayerState s = PlayerState.freshAccount().withUnlockedChunk(2);
+		PlanRunner.Inputs in = new PlanRunner.Inputs(s, null, Arrays.asList(chunk(2, task("a"))),
+			Arrays.asList(task("g")), Collections.singletonMap(2, 40), Collections.emptySet());
+		runner().run(false, true, in, GoalMode.maxPoints());
+		assertEquals(2, last.get().getTasks().size());
+		assertEquals(40, last.get().getTasks().get(0).getUnlockCost());
+	}
+
+	@Test
+	void taskRefsCallsUnlockCostOncePerRegion()
+	{
+		AtomicInteger costCalls = new AtomicInteger();
+		PlanRunner.taskRefs(Arrays.asList(chunk(1, task("a"), task("b"), task("c")), chunk(2, task("d"))), null,
+			PlayerState.freshAccount(), r ->
+			{
+				costCalls.incrementAndGet();
+				return 1;
+			});
+		assertEquals(2, costCalls.get());
+	}
+
+	@Test
+	void simulateIgnoresRealCompletedTasks()
+	{
+		PlanRunner.Inputs in = new PlanRunner.Inputs(PlayerState.freshAccount(), null, Collections.emptyList(),
+			Collections.emptyList(), Collections.emptyMap(), Collections.singleton("done"));
+		runner().run(true, false, in, GoalMode.maxPoints());
+		assertEquals(0, last.get().getCompletedTaskIds().size());
+		runner().run(false, true, in, GoalMode.maxPoints());
+		assertEquals(1, last.get().getCompletedTaskIds().size());
+	}
+
+	@Test
+	void travelGraphRebuiltOnlyWhenChunkListChanges()
+	{
+		AtomicInteger builds = new AtomicInteger();
+		PlanRunner r = new PlanRunner(null, null, null, req -> empty, chunks ->
+		{
+			builds.incrementAndGet();
+			return new PlanRunner.Travel(null, null);
+		});
+		NuzlockeChunk a = chunk(1, task("a"));
+		NuzlockeChunk b = chunk(2, task("b"));
+		PlayerState s = PlayerState.freshAccount();
+		java.util.function.Function<List<NuzlockeChunk>, PlanRunner.Inputs> in = cs -> new PlanRunner.Inputs(s, null, cs,
+			Collections.emptyList(), Collections.emptyMap(), Collections.emptySet());
+		r.run(true, true, in.apply(Arrays.asList(a, b)), GoalMode.maxPoints());
+		r.run(true, true, in.apply(Arrays.asList(a, b)), GoalMode.maxPoints());
+		assertEquals(1, builds.get());
+		r.run(true, true, in.apply(Arrays.asList(a, chunk(3, task("c")))), GoalMode.maxPoints());
+		assertEquals(2, builds.get());
+		r.run(true, true, in.apply(Arrays.asList(a)), GoalMode.maxPoints());
+		assertEquals(3, builds.get());
 	}
 
 	@Test

@@ -48,6 +48,17 @@ class BankCacheTest
 	}
 
 	@Test
+	void fromContainerCanonicalizesSkipsEmptyAndMerges()
+	{
+		Map<Integer, Integer> m = BankCache.fromContainer(new net.runelite.api.Item[]{
+			new net.runelite.api.Item(1000, 2), new net.runelite.api.Item(10, 3), new net.runelite.api.Item(-1, 5),
+			new net.runelite.api.Item(10, 0), new net.runelite.api.Item(11, 4)}, id -> id == 1000 ? 11 : id);
+		assertEquals(2, m.size());
+		assertEquals(6, (int) m.get(11));
+		assertEquals(3, (int) m.get(10));
+	}
+
+	@Test
 	void accountBNeverSeesAccountABankAfterReload()
 	{
 		BankCache c = cache();

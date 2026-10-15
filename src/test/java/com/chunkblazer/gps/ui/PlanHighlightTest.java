@@ -65,6 +65,18 @@ class PlanHighlightTest
 	}
 
 	@Test
+	void snapshotIsNullWhenClearedAndConsistentWhenSet()
+	{
+		PlanHighlight h = new PlanHighlight();
+		assertNull(h.snapshot());
+		h.set(5, "x");
+		PlanHighlight.State s = h.snapshot();
+		h.clear();
+		assertEquals(5, s.getRegionId());
+		assertEquals("x", s.getLabel());
+	}
+
+	@Test
 	void regionOfStepUsesTile()
 	{
 		PlanStep s = step(new Tile(3222, 3218, 0, false, null));

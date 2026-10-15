@@ -107,6 +107,22 @@ class PlayerStateProviderTest
 	}
 
 	@Test
+	void notedItemsCountAsTheirCanonicalId()
+	{
+		Client client = baseClient();
+		ItemContainer inv = container(new Item(1001, 3), new Item(1002, 2));
+		when(client.getItemContainer(InventoryID.INV)).thenReturn(inv);
+		ItemManager items = mock(ItemManager.class);
+		when(items.canonicalize(1001)).thenReturn(1000);
+		when(items.canonicalize(1002)).thenReturn(0);
+		PlayerState s = new PlayerStateProvider(client, Collections::emptySet, q -> false, Collections::emptyMap, items)
+			.snapshot();
+		assertEquals(3, s.ownedCount(1000));
+		assertEquals(0, s.ownedCount(1001));
+		assertEquals(2, s.ownedCount(1002));
+	}
+
+	@Test
 	void ignoresBadItemsAndToleratesNulls()
 	{
 		Client client = baseClient();

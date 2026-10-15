@@ -59,7 +59,6 @@ import net.runelite.api.Client;
 import java.util.Collection;
 import java.util.Collections;
 import net.runelite.api.GameState;
-import net.runelite.api.Item;
 import net.runelite.api.MenuAction;
 import net.runelite.api.Player;
 import net.runelite.api.Skill;
@@ -110,6 +109,7 @@ import com.chunkblazer.api.ServerBackoff;
 import com.chunkblazer.gps.adapter.BankCache;
 import com.chunkblazer.gps.adapter.BankCacheStore;
 import com.chunkblazer.gps.ui.GpsModule;
+import com.chunkblazer.gps.ui.PlanHighlight;
 import com.chunkblazer.modules.TaskModuleManager;
 
 @Slf4j
@@ -243,6 +243,8 @@ public class ChunkBlazerPlugin extends Plugin
 	private volatile boolean questBackfillInFlight;
 
 	private final List<NuzlockeChunk> allChunks = new ArrayList<>();
+	// Immutable copy published at the end of loadChunkData, safe to read from any thread (GPS).
+	private volatile List<NuzlockeChunk> chunkSnapshot = Collections.emptyList();
 	private final Map<Integer, NuzlockeChunk> chunksByRegionId = new HashMap<>();
 
 	// Area/chunk label used for tasks that belong to no chunk by design. Kept in
@@ -289,7 +291,7 @@ public class ChunkBlazerPlugin extends Plugin
 	private NavigationButton navButton;
 	private GpsModule gpsModule;
 	@Getter
-	private final com.chunkblazer.gps.ui.PlanHighlight planHighlight = new com.chunkblazer.gps.ui.PlanHighlight();
+	private final PlanHighlight planHighlight = new PlanHighlight();
 
 	@Inject
 	private ItemManager itemManager;
@@ -475,7 +477,7 @@ public class ChunkBlazerPlugin extends Plugin
 		{
 			gpsModule = new GpsModule(client, clientThread, executorService, clientToolbar, config::gpsDataDir,
 				this::gpsTasks, this::gpsOpenRegionIds, icon, gpsBankCache, itemManager,
-				new GpsModule.PlanSources(() -> allChunks, () -> globalTasks, this::getRegionUnlockCost,
+				new GpsModule.PlanSources(() -> chunkSnapshot, () -> globalTasks, this::getRegionUnlockCost,
 					this::getCompletedTaskIds, this::isFreeRegion), planHighlight);
 			gpsModule.start();
 			executorService.execute(gpsBankCache::reload);
@@ -491,7 +493,7 @@ public class ChunkBlazerPlugin extends Plugin
 	private List<NuzlockeTask> gpsTasks()
 	{
 		Map<String, NuzlockeTask> byId = new LinkedHashMap<>();
-		for (NuzlockeChunk chunk : allChunks)
+		for (NuzlockeChunk chunk : chunkSnapshot)
 		{
 			if (chunk.getTasks() != null)
 			{
@@ -506,7 +508,7 @@ public class ChunkBlazerPlugin extends Plugin
 	private Set<String> gpsOpenRegionIds()
 	{
 		Set<String> open = getUnlockedRegionIds();
-		for (NuzlockeChunk chunk : allChunks)
+		for (NuzlockeChunk chunk : chunkSnapshot)
 		{
 			if (chunk.getRegionIds() != null)
 			{
@@ -850,23 +852,23 @@ public class ChunkBlazerPlugin extends Plugin
 	@Subscribe
 	public void onItemContainerChanged(ItemContainerChanged event)
 	{
-		if (event.getContainerId() == InventoryID.INV && gpsModule != null)
+		if (event.getContainerId() == InventoryID.INV)
+		{
+			gpsReplan();
+		}
+		if (event.getContainerId() == InventoryID.BANK && event.getItemContainer() != null)
+		{
+			executorService.execute(gpsBankCache.updateTask(
+				BankCache.fromContainer(event.getItemContainer().getItems(), itemManager::canonicalize)));
+		}
+	}
+
+	private void gpsReplan()
+	{
+		if (gpsModule != null)
 		{
 			gpsModule.requestReplan();
 		}
-		if (event.getContainerId() != InventoryID.BANK || event.getItemContainer() == null)
-		{
-			return;
-		}
-		Map<Integer, Integer> bank = new HashMap<>();
-		for (Item item : event.getItemContainer().getItems())
-		{
-			if (item.getId() > 0 && item.getQuantity() > 0)
-			{
-				bank.merge(itemManager.canonicalize(item.getId()), item.getQuantity(), Integer::sum);
-			}
-		}
-		executorService.execute(gpsBankCache.updateTask(bank));
 	}
 
 	/**
@@ -1628,6 +1630,7 @@ public class ChunkBlazerPlugin extends Plugin
 
 		// Both sources are loaded; index them for O(1) findTaskById.
 		rebuildTaskIndex();
+		chunkSnapshot = Collections.unmodifiableList(new ArrayList<>(allChunks));
 	}
 
 	/**
@@ -5637,9 +5640,9 @@ public class ChunkBlazerPlugin extends Plugin
 	public void onStatChanged(StatChanged event)
 	{
 		Integer before = realLevels.put(event.getSkill(), event.getLevel());
-		if (before != null && event.getLevel() > before && gpsModule != null)
+		if (before != null && event.getLevel() > before)
 		{
-			gpsModule.requestReplan();
+			gpsReplan();
 		}
 	}
 
@@ -5968,10 +5971,7 @@ public class ChunkBlazerPlugin extends Plugin
 		// --- settle up once, regardless of batch size ---
 		addPoints(totalPoints);
 		markTasksCompleted(completedIds);
-		if (gpsModule != null)
-		{
-			gpsModule.requestReplan();
-		}
+		gpsReplan();
 
 		// Clear progress data for these tasks
 		saveActiveTasks();

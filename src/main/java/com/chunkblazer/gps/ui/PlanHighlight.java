@@ -29,22 +29,19 @@ import com.chunkblazer.gps.data.Tile;
 import com.chunkblazer.gps.plan.PlanStep;
 import com.chunkblazer.gps.travel.TileMath;
 import java.util.OptionalInt;
+import lombok.Value;
 
 /** Thread-safe holder for the region (and label) of the plan step to highlight on the world map. */
 public class PlanHighlight
 {
 	private volatile State state;
 
-	private static final class State
+	/** Immutable region and label pair; one {@link #snapshot()} is a consistent view. */
+	@Value
+	public static class State
 	{
-		private final int regionId;
-		private final String label;
-
-		private State(int regionId, String label)
-		{
-			this.regionId = regionId;
-			this.label = label;
-		}
+		int regionId;
+		String label;
 	}
 
 	public void set(int regionId, String label)
@@ -55,6 +52,12 @@ public class PlanHighlight
 	public void clear()
 	{
 		state = null;
+	}
+
+	/** The current highlight, or null when none is set. */
+	public State snapshot()
+	{
+		return state;
 	}
 
 	public OptionalInt regionId()

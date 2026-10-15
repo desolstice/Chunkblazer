@@ -60,7 +60,22 @@ public class ReplanTrigger
 		synchronized (this)
 		{
 			dirty = true;
-			run = claim();
+			run = claim(false);
+		}
+		if (run)
+		{
+			runAction();
+		}
+	}
+
+	/** Like {@link #request()} but ignores the debounce window (explicit user action); still never overlaps a run. */
+	public void requestNow()
+	{
+		boolean run;
+		synchronized (this)
+		{
+			dirty = true;
+			run = claim(true);
 		}
 		if (run)
 		{
@@ -77,7 +92,7 @@ public class ReplanTrigger
 		boolean run;
 		synchronized (this)
 		{
-			run = claim();
+			run = claim(false);
 		}
 		if (run)
 		{
@@ -110,10 +125,10 @@ public class ReplanTrigger
 	}
 
 	/** Caller holds the lock. */
-	private boolean claim()
+	private boolean claim(boolean ignoreWindow)
 	{
 		long now = clockMillis.getAsLong();
-		if (!dirty || inFlight || (everRan && now - lastRunStart < windowMillis))
+		if (!dirty || inFlight || (!ignoreWindow && everRan && now - lastRunStart < windowMillis))
 		{
 			return false;
 		}

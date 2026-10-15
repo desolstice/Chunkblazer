@@ -102,6 +102,25 @@ class ReplanTriggerTest
 	}
 
 	@Test
+	void requestNowBypassesWindowButNotInFlight()
+	{
+		ReplanTrigger t = trigger();
+		t.request();
+		t.finished();
+		clock.set(10);
+		t.requestNow();
+		assertEquals(2, runs.get());
+		t.requestNow();
+		assertEquals(2, runs.get());
+		t.finished();
+		t.tick();
+		assertEquals(2, runs.get());
+		clock.set(2000);
+		t.tick();
+		assertEquals(3, runs.get());
+	}
+
+	@Test
 	void requestAfterWindowRunsImmediately()
 	{
 		ReplanTrigger t = trigger();

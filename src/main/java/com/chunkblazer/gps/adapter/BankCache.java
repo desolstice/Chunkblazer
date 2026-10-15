@@ -26,8 +26,11 @@
 package com.chunkblazer.gps.adapter;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.function.IntUnaryOperator;
 import java.util.function.Supplier;
+import net.runelite.api.Item;
 
 /**
  * Volatile in-memory bank snapshot backed by a {@link BankCacheStore}. The snapshot is reloaded on
@@ -61,6 +64,20 @@ public final class BankCache
 	{
 		this.store = store;
 		this.accountKey = accountKey;
+	}
+
+	/** Builds an id to quantity map from a container, merging ids after {@code canonicalize} (un-notes items). */
+	public static Map<Integer, Integer> fromContainer(Item[] items, IntUnaryOperator canonicalize)
+	{
+		Map<Integer, Integer> out = new HashMap<>();
+		for (Item item : items)
+		{
+			if (item.getId() > 0 && item.getQuantity() > 0)
+			{
+				out.merge(canonicalize.applyAsInt(item.getId()), item.getQuantity(), Integer::sum);
+			}
+		}
+		return out;
 	}
 
 	/** Items for {@link PlayerStateProvider}; empty until a bank is seen or loaded for the current account. */

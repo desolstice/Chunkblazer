@@ -47,6 +47,7 @@ import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.api.worldmap.WorldMap;
+import com.chunkblazer.gps.ui.PlanHighlight;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
@@ -296,7 +297,8 @@ class ChunkBlazerWorldMapOverlay extends Overlay
 		Font regionFont = FontManager.getRunescapeBoldFont().deriveFont(14f);
 		graphics.setFont(regionFont);
 		Rectangle currentChunkRect = null;
-		int planRegion = plugin.getPlanHighlight().regionId().orElse(-1);
+		PlanHighlight.State plan = plugin.getPlanHighlight().snapshot();
+		int planRegion = plan == null ? -1 : plan.getRegionId();
 		Rectangle planRect = null;
 
 		for (int x = xRegionMin; x < xRegionMax; x += REGION_SIZE)
@@ -410,7 +412,7 @@ class ChunkBlazerWorldMapOverlay extends Overlay
 			graphics.setStroke(new BasicStroke(3f));
 			graphics.drawRect(planRect.x, planRect.y, planRect.width, planRect.height);
 			graphics.setStroke(oldStroke);
-			String planLabel = plugin.getPlanHighlight().label();
+			String planLabel = plan.getLabel();
 			if (planLabel != null && planRect.width >= MIN_LABEL_CHUNK_PIXELS)
 			{
 				graphics.drawString(planLabel, planRect.x + 5, planRect.y + 16);

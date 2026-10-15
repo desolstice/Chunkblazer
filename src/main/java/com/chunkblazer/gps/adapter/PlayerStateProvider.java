@@ -235,7 +235,7 @@ public final class PlayerStateProvider
 		return owned;
 	}
 
-	private static void addContainer(Map<Integer, Integer> owned, ItemContainer container)
+	private void addContainer(Map<Integer, Integer> owned, ItemContainer container)
 	{
 		if (container == null)
 		{
@@ -250,8 +250,26 @@ public final class PlayerStateProvider
 		{
 			if (item != null)
 			{
-				add(owned, item.getId(), item.getQuantity());
+				add(owned, canonical(item.getId()), item.getQuantity());
 			}
+		}
+	}
+
+	/** Noted items count as their base item; an unknown or failing lookup keeps the raw id. */
+	private int canonical(int id)
+	{
+		if (itemManager == null || id <= 0)
+		{
+			return id;
+		}
+		try
+		{
+			int c = itemManager.canonicalize(id);
+			return c > 0 ? c : id;
+		}
+		catch (RuntimeException ex)
+		{
+			return id;
 		}
 	}
 

@@ -43,6 +43,7 @@ import com.chunkblazer.gps.travel.ChunkNodes;
 import com.chunkblazer.gps.travel.TransportModel;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -91,10 +92,12 @@ public final class PlanRunner
 		PlayerState state;
 		/** Player's world tile, or null when unknown. */
 		Tile position;
-		List<TaskRef> tasks;
-		Set<String> completedTaskIds;
-		/** Chunk catalog, used once to build the travel graph. */
+		/** Chunk catalog (an immutable snapshot); also keys the cached travel graph. */
 		List<NuzlockeChunk> chunks;
+		List<NuzlockeTask> globalTasks;
+		/** Unlock cost per region, precomputed on the client thread by {@link #unlockCosts}. */
+		Map<Integer, Integer> unlockCosts;
+		Set<String> completedTaskIds;
 	}
 
 	/** Exactly one of plan and message is set. */
@@ -117,7 +120,8 @@ public final class PlanRunner
 	private final RequirementDeriver deriver;
 	private final Function<PlanRequest, Plan> planner;
 	private final Function<List<NuzlockeChunk>, Travel> travelFactory;
-	private volatile Travel travel;
+	private Travel travel;
+	private List<NuzlockeChunk> travelChunks;
 
 	public PlanRunner(GpsData data, QuestCatalog quests, RequirementDeriver deriver)
 	{
@@ -160,6 +164,20 @@ public final class PlanRunner
 		}
 	}
 
+	/** Unlock cost of each chunk's first region; cheap enough for the client thread, so the rest can run off it. */
+	public static Map<Integer, Integer> unlockCosts(List<NuzlockeChunk> chunks, IntUnaryOperator unlockCost)
+	{
+		Map<Integer, Integer> out = new HashMap<>();
+		for (NuzlockeChunk c : chunks)
+		{
+			if (c != null && c.getRegionIds() != null && !c.getRegionIds().isEmpty())
+			{
+				out.computeIfAbsent(c.getRegionIds().get(0), unlockCost::applyAsInt);
+			}
+		}
+		return out;
+	}
+
 	/**
 	 * One {@link TaskRef} per distinct task id: chunk tasks use their defining chunk's first region (preferring a chunk
 	 * the player has unlocked); global tasks have no chunk and use any region the player holds, since they are free.
@@ -168,6 +186,7 @@ public final class PlanRunner
 		IntUnaryOperator unlockCost)
 	{
 		Map<String, TaskRef> byId = new LinkedHashMap<>();
+		Map<Integer, Integer> costs = new HashMap<>();
 		if (chunks != null)
 		{
 			for (NuzlockeChunk c : chunks)
@@ -186,7 +205,7 @@ public final class PlanRunner
 					TaskRef have = byId.get(t.getTaskId());
 					if (have == null || (!state.hasUnlockedChunk(have.getHomeRegionId()) && state.hasUnlockedChunk(region)))
 					{
-						byId.put(t.getTaskId(), new TaskRef(t, region, unlockCost.applyAsInt(region)));
+						byId.put(t.getTaskId(), new TaskRef(t, region, costs.computeIfAbsent(region, unlockCost::applyAsInt)));
 					}
 				}
 			}
@@ -209,24 +228,30 @@ public final class PlanRunner
 	 * Plans for the goal. A real (non simulated) account that is logged out gets the log-in message and the planner is
 	 * not called, so a bogus all-level-1 account is never planned. Off the client thread.
 	 */
-	public Result run(boolean simulate, boolean loggedIn, Inputs in, GoalMode goal)
+	public synchronized Result run(boolean simulate, boolean loggedIn, Inputs in, GoalMode goal)
 	{
 		if (!simulate && (!loggedIn || in == null || in.getState() == null))
 		{
 			return new Result(null, LOGGED_OUT_MESSAGE);
 		}
-		Travel t = travel;
-		if (t == null)
+		List<NuzlockeChunk> chunks = in.getChunks() == null ? Collections.<NuzlockeChunk>emptyList() : in.getChunks();
+		if (travel == null || !sameChunks(travelChunks, chunks))
 		{
-			t = travelFactory.apply(in.getChunks() == null ? Collections.<NuzlockeChunk>emptyList() : in.getChunks());
-			travel = t;
+			travel = travelFactory.apply(chunks);
+			travelChunks = new ArrayList<>(chunks);
 		}
+		Travel t = travel;
+		Map<Integer, Integer> costs = in.getUnlockCosts() == null ? Collections.<Integer, Integer>emptyMap() : in.getUnlockCosts();
+		List<TaskRef> tasks = taskRefs(chunks, in.getGlobalTasks(), in.getState(), r -> costs.getOrDefault(r, 0));
+		// A simulation is independent of the real account's completed tasks.
+		Set<String> completed = simulate || in.getCompletedTaskIds() == null
+			? Collections.<String>emptySet() : in.getCompletedTaskIds();
 		PlanRequest req = PlanRequest.builder()
 			.state(in.getState())
 			.start(in.getPosition() == null ? UNKNOWN_START : in.getPosition())
 			.goal(goal == null ? GoalMode.maxPoints() : goal)
-			.tasks(in.getTasks())
-			.completedTaskIds(in.getCompletedTaskIds())
+			.tasks(tasks)
+			.completedTaskIds(completed)
 			.data(data)
 			.quests(quests)
 			.deriver(deriver)
@@ -234,5 +259,21 @@ public final class PlanRunner
 			.transport(t.getTransport())
 			.build();
 		return new Result(planner.apply(req), null);
+	}
+
+	private static boolean sameChunks(List<NuzlockeChunk> a, List<NuzlockeChunk> b)
+	{
+		if (a == null || a.size() != b.size())
+		{
+			return false;
+		}
+		for (int i = 0; i < a.size(); i++)
+		{
+			if (a.get(i) != b.get(i))
+			{
+				return false;
+			}
+		}
+		return true;
 	}
 }

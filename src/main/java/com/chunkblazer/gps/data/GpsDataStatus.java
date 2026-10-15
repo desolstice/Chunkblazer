@@ -62,7 +62,7 @@ public class GpsDataStatus
 	{
 		if (!directoryFound)
 		{
-			return "GPS data not found at " + dir + ". Run the scraper (see docs/superpowers/plans).";
+			return "GPS data not found at " + dir + ".";
 		}
 		if (isComplete())
 		{

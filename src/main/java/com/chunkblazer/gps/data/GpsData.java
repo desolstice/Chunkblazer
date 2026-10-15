@@ -25,6 +25,7 @@
  */
 package com.chunkblazer.gps.data;
 
+import java.util.ArrayList;
 import java.util.List;
 import lombok.Value;
 

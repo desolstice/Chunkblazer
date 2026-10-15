@@ -27,6 +27,7 @@ package com.chunkblazer.gps.plan;
 
 import com.chunkblazer.gps.model.Requirement;
 import com.chunkblazer.gps.travel.ResolvedLocation;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import lombok.Builder;
@@ -37,22 +38,37 @@ import lombok.Value;
  * the node ids that must come before it. Duration is informational only and never enters the travel cost.
  */
 @Value
-@Builder(toBuilder = true)
 public class PlanNode
 {
 	String id;
 	NodeType type;
 	String label;
 	ResolvedLocation location;
-	@Builder.Default
-	Requirement requirement = Requirement.NONE;
-	@Builder.Default
-	Effects effects = Effects.NONE;
-	@Builder.Default
-	List<String> after = Collections.emptyList();
+	Requirement requirement;
+	Effects effects;
+	List<String> after;
 	int points;
 	int durationTicks;
 	String questId;
 	Integer stepIndex;
 	String taskId;
+
+	@Builder(toBuilder = true)
+	private PlanNode(String id, NodeType type, String label, ResolvedLocation location, Requirement requirement,
+		Effects effects, List<String> after, int points, int durationTicks, String questId, Integer stepIndex,
+		String taskId)
+	{
+		this.id = id;
+		this.type = type;
+		this.label = label;
+		this.location = location;
+		this.requirement = requirement == null ? Requirement.NONE : requirement;
+		this.effects = effects == null ? Effects.NONE : effects;
+		this.after = after == null ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(after));
+		this.points = points;
+		this.durationTicks = durationTicks;
+		this.questId = questId;
+		this.stepIndex = stepIndex;
+		this.taskId = taskId;
+	}
 }

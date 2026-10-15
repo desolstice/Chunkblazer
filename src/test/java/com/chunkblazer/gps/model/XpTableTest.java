@@ -36,6 +36,7 @@ class XpTableTest
 	{
 		assertEquals(0, XpTable.xpForLevel(1));
 		assertEquals(83, XpTable.xpForLevel(2));
+		assertEquals(388, XpTable.xpForLevel(5));
 		assertEquals(1154, XpTable.xpForLevel(10));
 		assertEquals(13_034_431, XpTable.xpForLevel(99));
 	}

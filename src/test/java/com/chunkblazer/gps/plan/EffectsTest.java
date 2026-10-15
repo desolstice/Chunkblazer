@@ -28,6 +28,7 @@ package com.chunkblazer.gps.plan;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.chunkblazer.gps.model.PlayerState;
+import com.chunkblazer.gps.model.XpTable;
 import org.junit.jupiter.api.Test;
 
 class EffectsTest
@@ -48,7 +49,7 @@ class EffectsTest
 		Effects e = Effects.builder().xp("COOKING", 300).questComplete("COOKS_ASSISTANT", 1).item(1944, 2)
 			.unlock("TELEPORT:Explorer's ring").taskPoints(3).build();
 		PlayerState r = e.apply(PlayerState.freshAccount());
-		assertTrue(r.getLevel("COOKING") >= 4);
+		assertEquals(4, r.getLevel("COOKING"));
 		assertTrue(r.hasQuest("COOKS_ASSISTANT"));
 		assertEquals(1, r.getQuestPoints());
 		assertEquals(2, r.ownedCount(1944));
@@ -65,6 +66,25 @@ class EffectsTest
 		assertEquals(150L, (long) c.getXp().get("COOKING"));
 		assertEquals(3, c.getTaskPoints());
 		assertEquals(15, (int) c.getReachLevel().get("MINING"));
+	}
+
+	@Test
+	void reachLevelAppliesBeforeXp()
+	{
+		Effects e = Effects.builder().reachLevel("COOKING", 30).xp("COOKING", 100).build();
+		PlayerState r = e.apply(PlayerState.freshAccount());
+		assertEquals(XpTable.xpForLevel(30) + 100, r.getXp("COOKING"));
+	}
+
+	@Test
+	void plusUnionsQuestsAndUnlocks()
+	{
+		Effects a = Effects.builder().questComplete("A", 1).unlock("TELEPORT:x").build();
+		Effects b = Effects.builder().questComplete("B", 2).unlock("TELEPORT:y").unlock("TELEPORT:x").build();
+		Effects c = a.plus(b);
+		assertEquals(2, c.getQuestsCompleted().size());
+		assertEquals(2, (int) c.getQuestsCompleted().get("B"));
+		assertEquals(2, c.getUnlocks().size());
 	}
 
 	@Test

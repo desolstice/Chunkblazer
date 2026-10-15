@@ -25,6 +25,7 @@
  */
 package com.chunkblazer.gps.eligibility;
 
+import com.chunkblazer.NuzlockeChunk;
 import com.chunkblazer.NuzlockeTask;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
@@ -87,6 +88,50 @@ public final class CatalogTestSupport
 							for (JsonElement t : region.getAsJsonObject().getAsJsonArray("tasks"))
 							{
 								out.add(gson.fromJson(t, NuzlockeTask.class));
+							}
+						}
+					}
+				}
+			}
+		}
+		catch (IOException e)
+		{
+			throw new IllegalStateException(e);
+		}
+		return out;
+	}
+
+	/** Same traversal as {@link #loadCatalogTasks()} but returns each region object as a NuzlockeChunk. */
+	public static List<NuzlockeChunk> loadCatalogChunks()
+	{
+		Gson gson = new Gson();
+		List<NuzlockeChunk> out = new ArrayList<>();
+		try (InputStream in = CatalogTestSupport.class.getResourceAsStream(RESOURCE))
+		{
+			if (in == null)
+			{
+				throw new IllegalStateException("missing resource " + RESOURCE);
+			}
+			try (Reader r = new InputStreamReader(new GZIPInputStream(in), StandardCharsets.UTF_8))
+			{
+				JsonObject root = new JsonParser().parse(r).getAsJsonObject();
+				for (Map.Entry<String, JsonElement> file : root.entrySet())
+				{
+					if (file.getKey().startsWith("_") || !file.getValue().isJsonObject())
+					{
+						continue;
+					}
+					for (Map.Entry<String, JsonElement> list : file.getValue().getAsJsonObject().entrySet())
+					{
+						if (!list.getValue().isJsonArray())
+						{
+							continue;
+						}
+						for (JsonElement region : list.getValue().getAsJsonArray())
+						{
+							if (region.isJsonObject() && region.getAsJsonObject().has("region_id"))
+							{
+								out.add(gson.fromJson(region, NuzlockeChunk.class));
 							}
 						}
 					}

@@ -33,6 +33,8 @@ import com.chunkblazer.gps.data.GpsData;
 import com.chunkblazer.gps.data.GpsDataStore;
 import com.chunkblazer.gps.eligibility.Overrides;
 import com.chunkblazer.gps.eligibility.RequirementDeriver;
+import com.chunkblazer.gps.data.Tile;
+import com.chunkblazer.gps.model.PlayerState;
 import com.chunkblazer.gps.model.QuestCatalog;
 import com.chunkblazer.gps.model.QuestHelperEntry;
 import com.chunkblazer.gps.travel.LocationResolver;
@@ -208,6 +210,110 @@ class NodeFactoryTest
 		PlanNode n = factory(d, Collections.emptyMap()).acquireItem(554, 1).get();
 		assertTrue(n.getLabel().contains("Cheap Shop"));
 		assertEquals(3253, (int) n.getLocation().getTile().getX());
+	}
+
+	private static final String ITEMS_HEAD = "{\"schema\":1,\"items\":[";
+
+	private static String item(int id, String name, String sources)
+	{
+		return "{\"id\":" + id + ",\"name\":\"" + name + "\",\"members\":false,\"slot\":null,\"requirements\":{\"skills\":{},\"quests\":[]},\"sources\":["
+			+ sources + "],\"teleport\":null}";
+	}
+
+	private NodeFactory located(GpsData d, int... unlockedRegions)
+	{
+		QuestCatalog q = QuestCatalog.build(d, Collections.emptyMap());
+		PlayerState.Builder b = PlayerState.builder();
+		for (int r : unlockedRegions)
+		{
+			b.chunk(r);
+		}
+		return new NodeFactory(d, q, new RequirementDeriver(q, Overrides.empty(), d), new LocationResolver(d, q),
+			Collections.emptySet(), b.build(), new Tile(3222, 3218, 0, false, null));
+	}
+
+	@Test
+	void acquireItemIgnoresShopsInLockedChunks()
+	{
+		// Cheap Shop (region 13150: x 3253,y 3401) is locked; Dear Shop (region 12850) is open
+		GpsData d = GpsTestFixtures.dataWith("{\"schema\":1,\"edges\":[]}",
+			ITEMS_HEAD + item(554, "Fire rune", "{\"type\":\"SHOP\",\"shop\":\"Dear Shop\",\"price\":20},{\"type\":\"SHOP\",\"shop\":\"Cheap Shop\",\"price\":10}") + "]}",
+			"{\"schema\":1,\"entries\":[{\"name\":\"Dear Shop\",\"kind\":\"SHOP\",\"ids\":[],\"x\":3222,\"y\":3218,\"plane\":0},{\"name\":\"Cheap Shop\",\"kind\":\"SHOP\",\"ids\":[],\"x\":3253,\"y\":3401,\"plane\":0}]}");
+		PlanNode n = located(d, 12850).acquireItem(554, 1).get();
+		assertTrue(n.getLabel().contains("Dear Shop"), n.getLabel());
+	}
+
+	@Test
+	void acquireItemIsEmptyWhenEveryShopIsInALockedChunk()
+	{
+		GpsData d = GpsTestFixtures.dataWith("{\"schema\":1,\"edges\":[]}",
+			ITEMS_HEAD + item(554, "Fire rune", "{\"type\":\"SHOP\",\"shop\":\"Far Shop\",\"price\":10}") + "]}",
+			"{\"schema\":1,\"entries\":[{\"name\":\"Far Shop\",\"kind\":\"SHOP\",\"ids\":[],\"x\":3253,\"y\":3401,\"plane\":0}]}");
+		assertFalse(located(d, 12850).acquireItem(554, 1).isPresent());
+	}
+
+	@Test
+	void shopChoiceUsesTheNearestDuplicateToTheStartNotTheWorldOrigin()
+	{
+		GpsData d = GpsTestFixtures.dataWith("{\"schema\":1,\"edges\":[]}",
+			ITEMS_HEAD + item(554, "Fire rune", "{\"type\":\"SHOP\",\"shop\":\"General Store\",\"price\":10}") + "]}",
+			"{\"schema\":1,\"entries\":[{\"name\":\"General Store\",\"kind\":\"SHOP\",\"ids\":[],\"x\":100,\"y\":100,\"plane\":0},{\"name\":\"General Store\",\"kind\":\"SHOP\",\"ids\":[],\"x\":3230,\"y\":3220,\"plane\":0}]}");
+		PlanNode n = located(d, 12850, 100 / 64 * 256 + 100 / 64).acquireItem(554, 1).get();
+		assertEquals(3230, (int) n.getLocation().getTile().getX());
+	}
+
+	@Test
+	void logsAreGatheredFromATreeInAnOpenChunk()
+	{
+		GpsData d = GpsTestFixtures.dataWith("{\"schema\":1,\"edges\":[]}",
+			ITEMS_HEAD + item(1511, "Logs", "{\"type\":\"CRAFT\",\"skill\":\"FIREMAKING\",\"level\":1},{\"type\":\"DROP\",\"npc\":\"Man\"},{\"type\":\"DROP\",\"npc\":\"Tree\"}") + "]}",
+			"{\"schema\":1,\"entries\":[{\"name\":\"Tree (Varrock)\",\"kind\":\"OBJECT\",\"ids\":[1],\"x\":3226,\"y\":3222,\"plane\":0},{\"name\":\"Tree (Far)\",\"kind\":\"OBJECT\",\"ids\":[2],\"x\":3212,\"y\":3481,\"plane\":0}]}");
+		PlanNode n = located(d, 12850).acquireItem(1511, 25).get();
+		assertEquals(NodeType.ACQUIRE_ITEM, n.getType());
+		assertTrue(n.getLabel().startsWith("Gather 25 x Logs"), n.getLabel());
+		assertEquals(25, (int) n.getEffects().getItems().get(1511));
+		assertEquals(3226, (int) n.getLocation().getTile().getX());
+		assertTrue(n.getLocation().isApproximate());
+		assertTrue(n.getRequirement().getSkills().isEmpty());
+	}
+
+	@Test
+	void gatherWithNoKnownOpenLocationIsApproximateAndUnplaced()
+	{
+		GpsData d = GpsTestFixtures.dataWith("{\"schema\":1,\"edges\":[]}",
+			ITEMS_HEAD + item(1511, "Logs", "{\"type\":\"DROP\",\"npc\":\"Tree\"}") + "]}",
+			"{\"schema\":1,\"entries\":[{\"name\":\"Tree (Far)\",\"kind\":\"OBJECT\",\"ids\":[2],\"x\":3212,\"y\":3481,\"plane\":0}]}");
+		PlanNode n = located(d, 12850).acquireItem(1511, 1).get();
+		assertNull(n.getLocation().getTile());
+		assertTrue(n.getLocation().isApproximate());
+	}
+
+	@Test
+	void higherTierLogsNeedWoodcuttingLevel()
+	{
+		GpsData d = GpsTestFixtures.dataWith("{\"schema\":1,\"edges\":[]}",
+			ITEMS_HEAD + item(1519, "Willow logs", "{\"type\":\"DROP\",\"npc\":\"Willow tree\"},{\"type\":\"DROP\",\"npc\":\"Oak tree (Farming)\"}") + "]}", null);
+		PlanNode n = located(d, 12850).acquireItem(1519, 1).get();
+		assertEquals(30, (int) n.getRequirement().getSkills().get("WOODCUTTING"));
+	}
+
+	@Test
+	void gemRocksNeedMiningAndBoatSpotsAreNotGatherable()
+	{
+		GpsData d = GpsTestFixtures.dataWith("{\"schema\":1,\"edges\":[]}",
+			ITEMS_HEAD + item(1623, "Uncut sapphire", "{\"type\":\"DROP\",\"npc\":\"Gem rocks\"}") + ","
+				+ item(317, "Raw shrimps", "{\"type\":\"DROP\",\"npc\":\"Boat fishing spot (small net, bait)\"}") + "]}", null);
+		NodeFactory f = located(d, 12850);
+		assertEquals(40, (int) f.acquireItem(1623, 1).get().getRequirement().getSkills().get("MINING"));
+		assertFalse(f.acquireItem(317, 1).isPresent());
+	}
+
+	@Test
+	void monsterDropsAreNotTreatedAsGatherable()
+	{
+		GpsData d = GpsTestFixtures.dataWith("{\"schema\":1,\"edges\":[]}",
+			ITEMS_HEAD + item(526, "Bones", "{\"type\":\"DROP\",\"npc\":\"Cow\"},{\"type\":\"DROP\",\"npc\":\"Rock Crab\"}") + "]}", null);
+		assertFalse(located(d, 12850).acquireItem(526, 1).isPresent());
 	}
 
 	@Test

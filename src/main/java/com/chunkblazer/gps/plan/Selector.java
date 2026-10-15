@@ -394,7 +394,7 @@ public final class Selector
 			Requirement atom = Requirement.builder().item(need).build();
 			if (!atom.missing(state).isEmpty())
 			{
-				String id = provideItem(w, p, atom, need);
+				String id = provideItem(w, p, atom, need, queue);
 				if (id == null)
 				{
 					return atom.missing(state);
@@ -681,7 +681,7 @@ public final class Selector
 		return unmet <= 1;
 	}
 
-	private String provideItem(Work w, Pending p, Requirement atom, ItemNeed need)
+	private String provideItem(Work w, Pending p, Requirement atom, ItemNeed need, Deque<Pending> queue)
 	{
 		String existing = existingProvider(w, p.node, atom);
 		if (existing != null)
@@ -702,7 +702,11 @@ public final class Selector
 			Optional<PlanNode> node = factory.acquireItem(id, qty);
 			if (node.isPresent())
 			{
-				w.nodes.putIfAbsent(node.get().getId(), node.get());
+				if (w.nodes.putIfAbsent(node.get().getId(), node.get()) == null
+					&& !node.get().getRequirement().getSkills().isEmpty())
+				{
+					queue.add(new Pending(node.get(), p.depth + 1)); // a gathering node may itself need a skill level
+				}
 				return node.get().getId();
 			}
 		}

@@ -246,7 +246,7 @@ class SelectorTest
 	@Test
 	void maxGearGoalBuysAffordableEquippablesCheapestFirst()
 	{
-		SelectorTestSupport s = new SelectorTestSupport().state(unlocked(12850)).goal(GoalMode.maxGear())
+		SelectorTestSupport s = new SelectorTestSupport().state(unlocked(12850, 12853)).goal(GoalMode.maxGear())
 			.withLocations(SHOP_LOCATION)
 			.withItems(items(item(1, "weapon", "S", 26, ""), item(2, "body", "S", 10, ""), item(3, null, "S", 1, ""),
 				item(4, "head", "S", 5, "\"ATTACK\":40")));
@@ -302,11 +302,24 @@ class SelectorTest
 	void missingItemAddsCheapestAcquisitionProvider()
 	{
 		String egg = "{\"name\":\"Egg\",\"ids\":[1,2],\"qty\":3}";
-		PrecedenceGraph g = new SelectorTestSupport().state(unlocked(12850)).withLocations(SHOP_LOCATION)
+		PrecedenceGraph g = new SelectorTestSupport().state(unlocked(12850, 12853)).withLocations(SHOP_LOCATION)
 			.withItems(items(item(1, null, "S", 10, ""), item(2, null, "S", 5, "")))
 			.withQuests(quests(quest("Q1", null, egg))).withQuestCheckTask("tq", "Q1", 1, 12850).select();
 		assertEquals(Collections.singletonList("acquire:2:3"), g.getPreds().get("quest:Q1:0"));
 		assertEquals(3, g.getNodes().size()); // 2 quest steps + acquisition
+	}
+
+	@Test
+	void shopInLockedChunkIsNotAProviderAndDoesNotAppearAsItsOwnUnplannable()
+	{
+		String egg = "{\"name\":\"Egg\",\"ids\":[1],\"qty\":1}";
+		// SHOP_LOCATION is outside the unlocked chunk 12849, so the task has no reachable source at all
+		PrecedenceGraph g = new SelectorTestSupport().state(unlocked(12849)).withLocations(SHOP_LOCATION)
+			.withItems(items(item(1, null, "S", 10, ""))).withQuests(quests(quest("Q1", null, egg)))
+			.withQuestCheckTask("tq", "Q1", 1, 12849).select();
+		assertTrue(g.getNodes().isEmpty());
+		assertEquals(1, g.getUnplannable().size());
+		assertEquals(Missing.Kind.ITEM, g.getUnplannable().get(0).getMissing().get(0).getKind());
 	}
 
 	@Test

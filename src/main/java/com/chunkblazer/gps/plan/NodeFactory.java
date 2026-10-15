@@ -36,12 +36,14 @@ import com.chunkblazer.gps.data.Tile;
 import com.chunkblazer.gps.data.TrainingMethod;
 import com.chunkblazer.gps.eligibility.RequirementDeriver;
 import com.chunkblazer.gps.model.ItemNeed;
+import com.chunkblazer.gps.model.PlayerState;
 import com.chunkblazer.gps.model.QuestCatalog;
 import com.chunkblazer.gps.model.QuestModel;
 import com.chunkblazer.gps.model.Requirement;
 import com.chunkblazer.gps.model.XpTable;
 import com.chunkblazer.gps.travel.LocationResolver;
 import com.chunkblazer.gps.travel.ResolvedLocation;
+import com.chunkblazer.gps.travel.TileMath;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -60,6 +62,8 @@ public final class NodeFactory
 	private final RequirementDeriver deriver;
 	private final LocationResolver locations;
 	private final Set<String> doneNodeIds;
+	private final PlayerState state;
+	private final Tile reference;
 
 	public NodeFactory(GpsData data, QuestCatalog quests, RequirementDeriver deriver, LocationResolver locations)
 	{
@@ -70,6 +74,18 @@ public final class NodeFactory
 	public NodeFactory(GpsData data, QuestCatalog quests, RequirementDeriver deriver, LocationResolver locations,
 		Set<String> doneNodeIds)
 	{
+		this(data, quests, deriver, locations, doneNodeIds, null, null);
+	}
+
+	/**
+	 * {@code state}: when given, shops and gathering spots in chunks it has not unlocked are never chosen. {@code
+	 * reference}: the tile duplicates are ranked against (normally the start); null ranks by name and coordinates.
+	 */
+	public NodeFactory(GpsData data, QuestCatalog quests, RequirementDeriver deriver, LocationResolver locations,
+		Set<String> doneNodeIds, PlayerState state, Tile reference)
+	{
+		this.state = state;
+		this.reference = reference;
 		this.doneNodeIds = doneNodeIds == null ? Collections.emptySet() : doneNodeIds;
 		this.data = data;
 		this.quests = quests;
@@ -315,7 +331,12 @@ public final class NodeFactory
 		return acquireItem(itemId, qty).orElse(null);
 	}
 
-	/** Buys the item at its cheapest shop with a known location; empty if there is none. */
+	/**
+	 * Gets the item from its cheapest shop that stands in an unlocked chunk (the duplicate nearest the start when a
+	 * shop name repeats). Without a reachable shop it falls back to gathering it from a tree, rocks or fishing spot
+	 * the item is dropped by. Shops in locked chunks are ignored silently; the item is only unobtainable (empty) when
+	 * no source at all is reachable.
+	 */
 	public Optional<PlanNode> acquireItem(int itemId, int qty)
 	{
 		ItemDef def = null;
@@ -331,6 +352,7 @@ public final class NodeFactory
 		{
 			return Optional.empty();
 		}
+		String name = def.getName() == null ? "item " + itemId : def.getName();
 		ItemDef.Source best = null;
 		ResolvedLocation bestLoc = null;
 		for (ItemDef.Source s : def.getSources())
@@ -339,8 +361,8 @@ public final class NodeFactory
 			{
 				continue;
 			}
-			ResolvedLocation loc = locations.forName(s.getShop(), 0);
-			if (!"NAME".equals(loc.getSource()))
+			Optional<ResolvedLocation> loc = locations.findNamed(s.getShop(), this::inOpenChunk, reference);
+			if (!loc.isPresent())
 			{
 				continue;
 			}
@@ -348,20 +370,76 @@ public final class NodeFactory
 				|| (price(s) == price(best) && s.getShop().compareTo(best.getShop()) < 0))
 			{
 				best = s;
-				bestLoc = loc;
+				bestLoc = loc.get();
 			}
 		}
-		if (best == null)
+		if (best != null)
+		{
+			return Optional.of(PlanNode.builder()
+				.id("acquire:" + itemId + ":" + qty)
+				.type(NodeType.ACQUIRE_ITEM)
+				.label("Buy " + qty + " x " + name + " (" + best.getShop() + ")")
+				.location(bestLoc)
+				.effects(Effects.builder().item(itemId, qty).build())
+				.build());
+		}
+		return gatherItem(def, name, qty);
+	}
+
+	/** A tile counts as open when no player state is known, or its region is an unlocked chunk. */
+	private boolean inOpenChunk(Tile t)
+	{
+		return state == null || state.hasUnlockedChunk(TileMath.regionId(t.getX(), t.getY()));
+	}
+
+	/**
+	 * Gathers the item from a resource it is dropped by (tree, rocks, fishing spot). The tile is the nearest listed
+	 * spot in an unlocked chunk; when none is listed the node is unplaced (it takes its neighbour's tile) and always
+	 * approximate. Trees carry their woodcutting level as a requirement.
+	 */
+	private Optional<PlanNode> gatherItem(ItemDef def, String name, int qty)
+	{
+		String bestBase = null;
+		ResolvedLocation bestLoc = null;
+		int bestLevel = Integer.MAX_VALUE;
+		for (ItemDef.Source s : def.getSources())
+		{
+			String base = s == null || !"DROP".equals(s.getType()) ? null : GatherSources.resourceBase(s.getNpc());
+			if (base == null)
+			{
+				continue;
+			}
+			int level = GatherSources.level(base);
+			Optional<ResolvedLocation> loc = locations.findNamed(base, this::inOpenChunk, reference);
+			boolean better = bestBase == null || (loc.isPresent() && bestLoc == null)
+				|| (loc.isPresent() == (bestLoc != null) && level < bestLevel)
+				|| (loc.isPresent() == (bestLoc != null) && level == bestLevel
+				&& (base.length() < bestBase.length() || (base.length() == bestBase.length() && base.compareTo(bestBase) < 0)));
+			if (better)
+			{
+				bestBase = base;
+				bestLoc = loc.orElse(null);
+				bestLevel = level;
+			}
+		}
+		if (bestBase == null)
 		{
 			return Optional.empty();
 		}
-		String name = def.getName() == null ? "item " + itemId : def.getName();
+		ResolvedLocation loc = bestLoc == null ? new ResolvedLocation(null, true, "GATHER")
+			: new ResolvedLocation(bestLoc.getTile(), true, "GATHER");
+		Requirement.Builder req = Requirement.builder();
+		if (bestLevel > 1)
+		{
+			req.skill(GatherSources.skill(bestBase), bestLevel);
+		}
 		return Optional.of(PlanNode.builder()
-			.id("acquire:" + itemId + ":" + qty)
+			.id("gather:" + def.getId() + ":" + qty)
 			.type(NodeType.ACQUIRE_ITEM)
-			.label("Buy " + qty + " x " + name + " (" + best.getShop() + ")")
-			.location(bestLoc)
-			.effects(Effects.builder().item(itemId, qty).build())
+			.label("Gather " + qty + " x " + name + " (" + bestBase + ")")
+			.location(loc)
+			.requirement(req.build())
+			.effects(Effects.builder().item(def.getId(), qty).build())
 			.build());
 	}
 

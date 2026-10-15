@@ -25,7 +25,12 @@
  */
 package com.chunkblazer.gps;
 
+import com.chunkblazer.gps.data.GpsData;
+import com.chunkblazer.gps.data.GpsDataStore;
+import java.io.IOException;
 import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -45,6 +50,40 @@ public final class GpsTestFixtures
 		catch (URISyntaxException e)
 		{
 			throw new IllegalStateException(e);
+		}
+	}
+
+	/** Loads a temp data dir holding only locations.json with the given JSON (other files missing). */
+	public static GpsData dataWithLocations(String locationsJson)
+	{
+		return dataWith(null, null, locationsJson);
+	}
+
+	/** Loads a temp data dir with transport.json, items.json and locations.json; null arguments skip the file. */
+	public static GpsData dataWith(String transportJson, String itemsJson, String locationsJson)
+	{
+		try
+		{
+			Path d = Files.createTempDirectory("gps-fixture");
+			d.toFile().deleteOnExit();
+			write(d, "transport.json", transportJson);
+			write(d, "items.json", itemsJson);
+			write(d, "locations.json", locationsJson);
+			return GpsDataStore.load(d);
+		}
+		catch (IOException e)
+		{
+			throw new IllegalStateException(e);
+		}
+	}
+
+	private static void write(Path dir, String file, String json) throws IOException
+	{
+		if (json != null)
+		{
+			Path p = dir.resolve(file);
+			Files.write(p, json.getBytes(StandardCharsets.UTF_8));
+			p.toFile().deleteOnExit();
 		}
 	}
 }

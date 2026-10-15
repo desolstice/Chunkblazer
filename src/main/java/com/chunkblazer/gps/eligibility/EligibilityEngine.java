@@ -79,6 +79,19 @@ public final class EligibilityEngine
 		Requirement req = quest.get().getRequirement();
 		List<Missing> missing = new ArrayList<>(req.missing(state));
 		Set<Missing> seen = new HashSet<>(missing);
+		// QuestModel.chunks lists every chunk the quest touches; all of them must be unlocked.
+		// Same text the Requirement uses for a chunk, so the dedupe catches any overlap.
+		for (int chunk : quest.get().getChunks())
+		{
+			if (!state.hasUnlockedChunk(chunk))
+			{
+				Missing m = new Missing(Missing.Kind.CHUNK, "Chunk " + chunk + " not unlocked");
+				if (seen.add(m))
+				{
+					missing.add(m);
+				}
+			}
+		}
 		for (String pre : quests.prerequisitesClosure(questId))
 		{
 			if (state.hasQuest(pre))

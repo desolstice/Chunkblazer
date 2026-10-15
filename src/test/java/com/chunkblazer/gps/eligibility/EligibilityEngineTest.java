@@ -36,7 +36,10 @@ import com.chunkblazer.gps.model.PlayerState;
 import com.chunkblazer.gps.model.QuestCatalog;
 import com.chunkblazer.gps.model.QuestHelperEntry;
 import com.google.gson.Gson;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class EligibilityEngineTest
@@ -106,6 +109,41 @@ class EligibilityEngineTest
 		Eligibility e = engine(GpsData.empty(null)).evaluateQuest("NOPE", PlayerState.freshAccount());
 		assertEquals(Eligibility.Status.UNKNOWN, e.getStatus());
 		assertEquals(1, e.getMissing().size());
+	}
+
+	@Test
+	void questWithLockedChunkIsNotDoable()
+	{
+		EligibilityEngine eng = engine(GpsData.empty(null));
+		PlayerState onlyFirst = PlayerState.freshAccount().withUnlockedChunk(12083);
+		Eligibility e = eng.evaluateQuest("A_PORCINE_OF_INTEREST", onlyFirst);
+		assertEquals(Eligibility.Status.BLOCKED, e.getStatus());
+		assertTrue(e.getMissing().contains(new Missing(Missing.Kind.CHUNK, "Chunk 12338 not unlocked")));
+		assertTrue(e.getMissing().stream().noneMatch(m -> m.getText().contains("12083")));
+	}
+
+	@Test
+	void questWithAllChunksUnlockedIsDoable()
+	{
+		PlayerState s = PlayerState.freshAccount();
+		for (int c : new int[]{12083, 12338, 12339, 12596})
+		{
+			s = s.withUnlockedChunk(c);
+		}
+		EligibilityEngine eng = engine(GpsData.empty(null));
+		assertEquals(Eligibility.Status.DOABLE, eng.evaluateQuest("A_PORCINE_OF_INTEREST", s).getStatus());
+		assertEquals(Eligibility.Status.DOABLE, eng.evaluateQuest("A_PORCINE_OF_INTEREST", s.withQuestComplete("A_PORCINE_OF_INTEREST", 1)).getStatus());
+	}
+
+	@Test
+	void questWithEmptyChunksIsUnaffected()
+	{
+		Map<String, QuestHelperEntry> helper = new LinkedHashMap<>();
+		helper.put("NO_CHUNKS", new QuestHelperEntry(Collections.emptyList(), null, null));
+		GpsData data = GpsData.empty(null);
+		QuestCatalog q = QuestCatalog.build(data, helper);
+		EligibilityEngine eng = new EligibilityEngine(new RequirementDeriver(q, Overrides.empty(), data), q, data);
+		assertEquals(Eligibility.Status.DOABLE, eng.evaluateQuest("NO_CHUNKS", PlayerState.freshAccount()).getStatus());
 	}
 
 	@Test

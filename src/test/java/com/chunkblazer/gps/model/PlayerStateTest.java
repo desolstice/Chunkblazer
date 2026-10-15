@@ -108,4 +108,18 @@ class PlayerStateTest
 		assertEquals(40, c.getLevel("ATTACK"));
 		assertEquals(41, d.getLevel("ATTACK"));
 	}
+
+	@Test
+	void taskPointsDefaultToZeroAndAreCopiedByEveryWith()
+	{
+		PlayerState s = PlayerState.freshAccount();
+		assertEquals(0, s.getTaskPoints());
+		PlayerState t = s.withTaskPoints(4).withTaskPoints(3);
+		assertEquals(0, s.getTaskPoints());
+		assertEquals(7, t.getTaskPoints());
+		PlayerState u = t.withXp("COOKING", 10).withItem(1, 1).withUnlock("X").withQuestComplete("Q", 1)
+			.withUnlockedChunk(5).toBuilder().level("ATTACK", 3).build();
+		assertEquals(7, u.getTaskPoints());
+		assertEquals(9, PlayerState.builder().taskPoints(9).build().getTaskPoints());
+	}
 }

@@ -45,6 +45,7 @@ public final class PlayerState
 	private final Set<Integer> chunks;
 	private final Set<String> unlocks;
 	private final int maxHit;
+	private final int taskPoints;
 
 	private PlayerState(Builder b)
 	{
@@ -57,6 +58,7 @@ public final class PlayerState
 		this.chunks = Collections.unmodifiableSet(new HashSet<>(b.chunks));
 		this.unlocks = Collections.unmodifiableSet(new HashSet<>(b.unlocks));
 		this.maxHit = b.maxHit;
+		this.taskPoints = b.taskPoints;
 	}
 
 	public static Builder builder()
@@ -81,6 +83,7 @@ public final class PlayerState
 		b.chunks.addAll(chunks);
 		b.unlocks.addAll(unlocks);
 		b.maxHit = maxHit;
+		b.taskPoints = taskPoints;
 		return b;
 	}
 
@@ -114,6 +117,11 @@ public final class PlayerState
 	public int getQuestPoints()
 	{
 		return questPoints;
+	}
+
+	public int getTaskPoints()
+	{
+		return taskPoints;
 	}
 
 	public int getMaxHit()
@@ -203,6 +211,13 @@ public final class PlayerState
 		return b.build();
 	}
 
+	public PlayerState withTaskPoints(int delta)
+	{
+		Builder b = toBuilder();
+		b.taskPoints += delta;
+		return b.build();
+	}
+
 	public PlayerState withUnlock(String token)
 	{
 		Builder b = toBuilder();
@@ -221,6 +236,7 @@ public final class PlayerState
 		private final Set<Integer> chunks = new HashSet<>();
 		private final Set<String> unlocks = new HashSet<>();
 		private int maxHit;
+		private int taskPoints;
 
 		private Builder()
 		{
@@ -277,6 +293,12 @@ public final class PlayerState
 		public Builder maxHit(int maxHit)
 		{
 			this.maxHit = maxHit;
+			return this;
+		}
+
+		public Builder taskPoints(int taskPoints)
+		{
+			this.taskPoints = taskPoints;
 			return this;
 		}
 

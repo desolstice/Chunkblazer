@@ -115,7 +115,7 @@ final class PlanWorld
 	{
 		for (PlanNode n : new Selector(request, factory).select().getNodes())
 		{
-			if (n.getLabel().equals(step.getLabel()))
+			if (n.getId().equals(step.getNodeId()))
 			{
 				return n;
 			}

@@ -203,17 +203,71 @@ class QuestPlanningTest
 	@Test
 	void nodesAdjacentAcrossARegionBorderAreNotDeferredOrForcedApart()
 	{
-		// a/b sit one tile apart on either side of the x=3264 region border; the walking estimate between them is
-		// inflated (region centres), but b is still on the way to c and must not be pushed to the end.
+		// All on the region-centre row y=3232. a/b sit one tile apart on either side of the x=3264 region border; if the
+		// a->b leg were priced through the region centres (~127 ticks) the solver would prefer d,a,c,b style orders or
+		// pay for the detour. The correct order d,a,b,c walks ~156 tiles; any other order is strictly longer.
 		PlanWorld w = PlanWorld.builder().unlocked(R50, R51)
-			.task("d", 1, 3210, 3200)
-			.task("a", 1, 3263, 3200)
-			.task("b", 1, 3264, 3200)
-			.task("c", 1, 3320, 3200)
+			.task("d", 1, 3200, 3232)
+			.task("a", 1, 3263, 3232)
+			.task("b", 1, 3264, 3232)
+			.task("c", 1, 3320, 3232)
+			.start(3232, 3232).build();
+		Plan p = new Planner(w.request()).plan();
+		assertEquals(Arrays.asList("d", "a", "b", "c"), labelsOf(p), p.getSteps().stream().map(s -> s.getLabel() + ":" + s.getTravelTicks()).collect(Collectors.toList()).toString());
+		assertTrue(p.getUnplannable().isEmpty());
+		PlanStep b = p.getSteps().get(2);
+		assertTrue(b.getTravelTicks() <= 6, "a->b crossing the border must cost about one tile, was " + b.getTravelTicks());
+	}
+
+	@Test
+	void stepsCarryStableNodeIds()
+	{
+		PlanWorld w = PlanWorld.builder().unlocked(R50).task("x1", 1, 3210, 3200).task("x2", 1, 3212, 3200)
 			.start(3200, 3200).build();
 		Plan p = new Planner(w.request()).plan();
-		assertEquals(Arrays.asList("d", "a", "b", "c"), labelsOf(p));
-		assertTrue(p.getUnplannable().isEmpty());
+		assertEquals(2, p.getSteps().size());
+		assertNotNull(p.getSteps().get(0).getNodeId());
+		assertTrue(!p.getSteps().get(0).getNodeId().equals(p.getSteps().get(1).getNodeId()));
+		for (PlanStep s : p.getSteps())
+		{
+			assertNotNull(w.nodeFor(s), s.getLabel());
+		}
+	}
+
+	@Test
+	void providersOfADroppedGoalAreNotLeftInThePlan()
+	{
+		// Q's second step is in a locked region, so Q's chain and the cook task that depended on it are unplannable;
+		// the reachable first step of Q is then an orphan provider and must not be planned.
+		PlanWorld w = PlanWorld.builder().unlocked(R50)
+			.quest("Q", 15000, "COOKING", step("near", 3205, 3205), step("locked away", 3300, 3200))
+			.task("cook", "COOKING", 30, 5, 3215, 3215)
+			.start(3200, 3200).build();
+		Plan p = new Planner(w.request()).plan();
+		assertTrue(p.getSteps().isEmpty(), labelsOf(p).toString());
+		assertTrue(p.getUnplannable().stream().anyMatch(u -> u.getLabel().contains("locked away") && u.getId() != null),
+			p.getUnplannable().toString());
+	}
+
+	@Test
+	void questChainWithoutKnownLocationsDoesNotBeatTraining()
+	{
+		PlanWorld w = PlanWorld.builder().unlocked(R50)
+			.quest("Q", 15000, "COOKING", stepNoLocation("talk"), stepNoLocation("talk more"))
+			.task("cook", "COOKING", 30, 5, 3215, 3215)
+			.trainingMethod("COOKING", "Grind", 1, 99, 30000, 3205, 3200)
+			.start(3200, 3200).build();
+		Plan p = new Planner(w.request()).plan();
+		assertTrue(p.getSteps().stream().anyMatch(s -> s.getType() == NodeType.TRAINING), labelsOf(p).toString());
+		assertTrue(p.getSteps().stream().noneMatch(s -> s.getType() == NodeType.QUEST_STEP), labelsOf(p).toString());
+	}
+
+	@Test
+	void unroutableLegsAreClampedSoTheyCannotSaturateTheTotal()
+	{
+		assertEquals(0, Planner.clampLeg(com.chunkblazer.gps.travel.TravelConfig.INF));
+		assertEquals(0, Planner.clampLeg(Integer.MAX_VALUE));
+		assertEquals(7, Planner.clampLeg(7));
 	}
 
 	@Test

@@ -29,8 +29,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import lombok.Value;
 
 /**
@@ -43,6 +45,8 @@ public class PrecedenceGraph
 	List<PlanNode> nodes;
 	Map<String, List<String>> preds;
 	List<Plan.Unplannable> unplannable;
+	/** Ids of the goal nodes (the rest are providers pulled in for them). */
+	Set<String> goals;
 
 	public static PrecedenceGraph of(List<PlanNode> nodes, Map<String, List<String>> preds)
 	{
@@ -52,6 +56,22 @@ public class PrecedenceGraph
 	public static PrecedenceGraph of(List<PlanNode> nodes, Map<String, List<String>> preds,
 		List<Plan.Unplannable> unplannable)
 	{
+		return of(nodes, preds, unplannable, null);
+	}
+
+	/** {@code goals == null} means every node counts as a goal. */
+	public static PrecedenceGraph of(List<PlanNode> nodes, Map<String, List<String>> preds,
+		List<Plan.Unplannable> unplannable, Set<String> goals)
+	{
+		Set<String> goalSet = new LinkedHashSet<>();
+		if (goals == null)
+		{
+			nodes.forEach(n -> goalSet.add(n.getId()));
+		}
+		else
+		{
+			goalSet.addAll(goals);
+		}
 		Map<String, List<String>> copy = new LinkedHashMap<>();
 		for (PlanNode n : nodes)
 		{
@@ -59,7 +79,7 @@ public class PrecedenceGraph
 			copy.put(n.getId(), p == null ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(p)));
 		}
 		return new PrecedenceGraph(Collections.unmodifiableList(new ArrayList<>(nodes)),
-			Collections.unmodifiableMap(copy), Collections.unmodifiableList(new ArrayList<>(unplannable)));
+			Collections.unmodifiableMap(copy), Collections.unmodifiableList(new ArrayList<>(unplannable)), Collections.unmodifiableSet(goalSet));
 	}
 
 	public boolean hasCycle()

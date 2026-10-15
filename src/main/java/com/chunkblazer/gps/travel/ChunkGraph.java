@@ -204,9 +204,29 @@ public final class ChunkGraph
 			{
 				return TravelConfig.INF;
 			}
+			if (isNeighbour(src, dst))
+			{
+				// Directly adjacent regions: walk straight across the border instead of detouring via both region
+				// centres (which badly overestimates short hops between tiles next to the border).
+				long direct = (long) Math.ceil(TileMath.tileDistance(a, b) * TravelConfig.WALK_TICKS_PER_TILE
+					* TravelConfig.CHUNK_DETOUR);
+				return (int) Math.min(direct, TravelConfig.INF);
+			}
 			tiles = (long) TileMath.tileDistance(a, TileMath.centre(ra)) + path + TileMath.tileDistance(TileMath.centre(rb), b);
 			long ticks = (long) Math.ceil(tiles * TravelConfig.WALK_TICKS_PER_TILE * TravelConfig.CHUNK_DETOUR);
 			return (int) Math.min(ticks, TravelConfig.INF);
+		}
+
+		private boolean isNeighbour(int src, int dst)
+		{
+			for (int k : nbr[src])
+			{
+				if (k == dst)
+				{
+					return true;
+				}
+			}
+			return false;
 		}
 
 		/** Single-source shortest paths over dense indices; a lazy-deletion binary heap of (distance, vertex) longs. */

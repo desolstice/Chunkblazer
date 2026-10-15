@@ -137,7 +137,7 @@ public final class Planner
 			List<Missing> missing = node.getRequirement().missing(projected);
 			if (!missing.isEmpty())
 			{
-				unplannable.add(new Plan.Unplannable(node.getLabel(), missing));
+				unplannable.add(new Plan.Unplannable(node.getLabel(), missing, node.getId()));
 				continue;
 			}
 			projected = node.getEffects().apply(projected);
@@ -157,15 +157,14 @@ public final class Planner
 		{
 			PlanNode node = nodes.get(idx - 1);
 			int ticks = m.cost(prev, idx);
-			if (ticks >= TravelConfig.INF && prev == 0)
-			{
-				ticks = 0; // unusable start tile: the first leg is unknown, not infinite
-			}
+			boolean unknownLeg = ticks >= TravelConfig.INF;
+			ticks = clampLeg(ticks); // unusable start tile or unroutable mid-plan leg: unknown, not infinite
 			total += ticks;
-			boolean approximate = carried.contains(node.getId()) || node.getLocation() == null
+			boolean approximate = unknownLeg || carried.contains(node.getId()) || node.getLocation() == null
 				|| node.getLocation().isApproximate();
 			steps.add(PlanStep.builder()
 				.order(steps.size())
+				.nodeId(node.getId())
 				.type(node.getType())
 				.label(node.getLabel())
 				.location(tiles.get(node.getId()))
@@ -183,6 +182,12 @@ public final class Planner
 	}
 
 	// ---- travel ----
+
+	/** A leg the cost model cannot route (INF) is reported as 0 ticks so it cannot saturate the total. */
+	static int clampLeg(int ticks)
+	{
+		return ticks >= TravelConfig.INF ? 0 : ticks;
+	}
 
 	/** The tile used for routing each node: its own, else its predecessor's, else the start (flagged carried). */
 	private void resolveTiles(List<PlanNode> nodes, Map<String, Tile> tiles, Set<String> carried)
@@ -260,7 +265,8 @@ public final class Planner
 			PlanNode b = nodes.get(j - 1);
 			root.put(b.getId(), b);
 			unplannable.add(new Plan.Unplannable(b.getLabel(), Collections.singletonList(
-				new Missing(Missing.Kind.CHUNK, "unreachable: " + b.getLabel() + " is in a locked or unknown location"))));
+				new Missing(Missing.Kind.CHUNK, "unreachable: " + b.getLabel() + " is in a locked or unknown location")),
+				b.getId()));
 		}
 		boolean grew = true;
 		while (grew)
@@ -279,7 +285,7 @@ public final class Planner
 					{
 						root.put(n.getId(), r);
 						unplannable.add(new Plan.Unplannable(n.getLabel(), Collections.singletonList(
-							new Missing(Missing.Kind.UNKNOWN, "requires unreachable " + r.getLabel()))));
+							new Missing(Missing.Kind.UNKNOWN, "requires unreachable " + r.getLabel())), n.getId()));
 						grew = true;
 						break;
 					}
@@ -294,7 +300,42 @@ public final class Planner
 				kept.add(n);
 			}
 		}
-		return kept;
+		return pruneOrphans(kept, graph);
+	}
+
+	/** Drops non-goal nodes that no surviving goal (transitively) needs, e.g. providers of a dropped goal. */
+	private static List<PlanNode> pruneOrphans(List<PlanNode> kept, PrecedenceGraph graph)
+	{
+		Set<String> keep = new LinkedHashSet<>();
+		Set<String> present = new LinkedHashSet<>();
+		kept.forEach(n -> present.add(n.getId()));
+		java.util.ArrayDeque<String> queue = new java.util.ArrayDeque<>();
+		for (PlanNode n : kept)
+		{
+			if (graph.getGoals().contains(n.getId()) && keep.add(n.getId()))
+			{
+				queue.add(n.getId());
+			}
+		}
+		while (!queue.isEmpty())
+		{
+			for (String p : graph.getPreds().getOrDefault(queue.poll(), Collections.emptyList()))
+			{
+				if (present.contains(p) && keep.add(p))
+				{
+					queue.add(p);
+				}
+			}
+		}
+		List<PlanNode> out = new ArrayList<>();
+		for (PlanNode n : kept)
+		{
+			if (keep.contains(n.getId()))
+			{
+				out.add(n);
+			}
+		}
+		return out;
 	}
 
 	// ---- output ----
@@ -303,6 +344,8 @@ public final class Planner
 	private static Map<String, PlanNode> firstDependents(List<PlanNode> nodes, PrecedenceGraph graph, Set<String> planned)
 	{
 		Map<String, PlanNode> out = new HashMap<>();
+		Map<String, PlanNode> byId = new HashMap<>();
+		nodes.forEach(x -> byId.put(x.getId(), x));
 		for (PlanNode n : nodes)
 		{
 			if (!planned.contains(n.getId()))
@@ -311,6 +354,11 @@ public final class Planner
 			}
 			for (String p : graph.getPreds().getOrDefault(n.getId(), Collections.emptyList()))
 			{
+				PlanNode pn = byId.get(p);
+				if (pn != null && pn.getQuestId() != null && pn.getQuestId().equals(n.getQuestId()))
+				{
+					continue; // same-quest successor: the "Quest step i/n" text already says it
+				}
 				out.putIfAbsent(p, n);
 			}
 		}

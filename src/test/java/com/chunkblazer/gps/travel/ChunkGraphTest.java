@@ -202,8 +202,8 @@ class ChunkGraphTest
 		Tile c2 = at(12851);
 		Tile a = new Tile(c1.getX() + 7, c1.getY() + 2, 0, false, null);
 		Tile b = new Tile(c2.getX() - 3, c2.getY() + 5, 0, false, null);
-		// legs 7 + 64 + 5 = 76 tiles * 0.625 = 47.5 -> 48
-		assertEquals(48, v.walkTicks(a, b));
+		// adjacent regions walk straight across the border: ceil(tileDistance * 0.625) = 42 (previously 48 via both centres)
+		assertEquals(42, v.walkTicks(a, b));
 	}
 
 	@Test

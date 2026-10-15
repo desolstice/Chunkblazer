@@ -44,5 +44,19 @@ public class Plan
 	{
 		String label;
 		List<Missing> missing;
+		/** Id of the plan node this refers to, or null when it has none (e.g. a goal that produced no node). */
+		String id;
+
+		public Unplannable(String label, List<Missing> missing)
+		{
+			this(label, missing, null);
+		}
+
+		public Unplannable(String label, List<Missing> missing, String id)
+		{
+			this.label = label;
+			this.missing = missing;
+			this.id = id;
+		}
 	}
 }

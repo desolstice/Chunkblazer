@@ -61,6 +61,8 @@ import java.util.Set;
  * locked chunks and unknown requirements have no provider, so anything needing them is reported as unplannable;
  * adjacency of locked chunks is ignored when picking the cheapest chunk to unlock; for {@code MAX_GEAR} each item
  * is worth one point and only items whose own skill and quest requirements are already met are considered.
+ * Quest-chain skill providers are judged against the initial state only: {@code needsAtMostOneProvider} checks the
+ * quest's own requirements there, not the state projected after other selected work.
  */
 public final class Selector
 {
@@ -546,7 +548,10 @@ public final class Selector
 		return TileMath.tileDistance(a, b) * TravelConfig.WALK_TICKS_PER_TILE;
 	}
 
-	/** Straight-line walking estimate from the start through the chain's known step tiles in order. */
+	/**
+	 * Straight-line walking estimate from the start through the chain's known step tiles in order; each step without a
+	 * known tile adds {@link #TRAINING_PENALTY_TICKS}.
+	 */
 	private double chainProxy(List<PlanNode> chain)
 	{
 		Tile prev = req.getStart() != null && req.getStart().isKnown() ? req.getStart() : null;
@@ -556,6 +561,7 @@ public final class Selector
 			Tile t = n.getLocation() == null ? null : n.getLocation().getTile();
 			if (t == null || !t.isKnown())
 			{
+				total += TRAINING_PENALTY_TICKS; // unlocated step: pessimistic, so an unknown chain never wins by default
 				continue;
 			}
 			if (prev != null)
@@ -741,7 +747,7 @@ public final class Selector
 			for (String id : drop)
 			{
 				unplannable.add(new Plan.Unplannable(work.nodes.get(id).getLabel(),
-					Collections.singletonList(new Missing(Missing.Kind.UNKNOWN, text))));
+					Collections.singletonList(new Missing(Missing.Kind.UNKNOWN, text)), id));
 			}
 			work.remove(drop);
 			g = work.toGraph(unplannable);
@@ -882,7 +888,7 @@ public final class Selector
 		{
 			Map<String, List<String>> p = new LinkedHashMap<>();
 			preds.forEach((k, v) -> p.put(k, new ArrayList<>(v)));
-			return PrecedenceGraph.of(new ArrayList<>(nodes.values()), p, unplannable);
+			return PrecedenceGraph.of(new ArrayList<>(nodes.values()), p, unplannable, goals);
 		}
 	}
 }

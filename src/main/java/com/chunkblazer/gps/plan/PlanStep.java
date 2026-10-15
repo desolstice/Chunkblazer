@@ -37,6 +37,7 @@ import lombok.Value;
 public class PlanStep
 {
 	int order;
+	String nodeId;
 	NodeType type;
 	String label;
 	Tile location;

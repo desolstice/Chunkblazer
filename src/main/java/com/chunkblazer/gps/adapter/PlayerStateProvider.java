@@ -26,6 +26,7 @@
 package com.chunkblazer.gps.adapter;
 
 import com.chunkblazer.gps.combat.CombatStats;
+import com.chunkblazer.gps.combat.MagicSpells;
 import com.chunkblazer.gps.combat.MaxHitCalculator;
 import com.chunkblazer.gps.model.PlayerState;
 import java.util.ArrayList;
@@ -43,43 +44,41 @@ import net.runelite.api.Quest;
 import net.runelite.api.Skill;
 import net.runelite.api.gameval.InventoryID;
 import net.runelite.api.gameval.VarPlayerID;
+import net.runelite.client.game.ItemEquipmentStats;
+import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.ItemStats;
 
 /**
  * Reads the live RuneLite client into an immutable {@link PlayerState}. Only the adapter package
  * of the GPS touches the RuneLite API.
  *
- * <p>Limitation (M2): equipment bonuses are not read, so the max hit is a level-only lower bound
- * (see {@link #isMaxHitApproximate()}); gear bonuses are wired in M5.
+ * <p>Max hit uses the worn equipment's strength, ranged strength and magic damage bonuses, with
+ * fixed assumptions: aggressive melee, accurate ranged, no prayer and no boosts.
  */
 public final class PlayerStateProvider
 {
-	/** Standard spellbook combat spells; level requirements per tier in element order (wind, water, earth, fire). */
-	private static final String[] ELEMENTS = {"wind", "water", "earth", "fire"};
-	private static final String[] TIERS = {"strike", "bolt", "blast", "wave", "surge"};
-	private static final int[][] TIER_LEVELS = {
-		{1, 5, 9, 13}, {17, 23, 29, 35}, {41, 47, 53, 59}, {62, 66, 70, 75}, {81, 85, 90, 95}
-	};
-
 	private final Client client;
 	private final Supplier<Set<String>> unlockedRegionIds;
 	private final Predicate<String> questFinished;
 	private final Supplier<Map<Integer, Integer>> bankItems;
+	private final ItemManager itemManager;
 
 	public PlayerStateProvider(Client client, Supplier<Set<String>> unlockedRegionIds,
-		Predicate<String> questFinished, Supplier<Map<Integer, Integer>> bankItems)
+		Predicate<String> questFinished, Supplier<Map<Integer, Integer>> bankItems, ItemManager itemManager)
 	{
 		this.client = client;
 		this.unlockedRegionIds = unlockedRegionIds;
 		this.questFinished = questFinished;
 		this.bankItems = bankItems;
+		this.itemManager = itemManager;
 	}
 
 	/**
-	 * The max hit in real mode ignores equipment, so it is a lower bound.
+	 * The max hit is computed from worn gear, so it is no longer a level-only lower bound.
 	 */
 	public boolean isMaxHitApproximate()
 	{
-		return true;
+		return false;
 	}
 
 	/**
@@ -151,13 +150,12 @@ public final class PlayerStateProvider
 			b.combatLevel(player.getCombatLevel());
 		}
 
-		CombatStats stats = CombatStats.builder()
-			.strength(strength)
-			.ranged(ranged)
-			.magic(magic)
-			.style(CombatStats.Style.AGGRESSIVE)
-			.build();
-		b.maxHit(MaxHitCalculator.best(stats, availableSpells(magic)));
+		GearBonuses gear = wornBonuses();
+		CombatStats meleeStats = combatStats(strength, ranged, magic, gear, CombatStats.Style.AGGRESSIVE);
+		CombatStats rangedStats = combatStats(strength, ranged, magic, gear, CombatStats.Style.ACCURATE);
+		int maxHit = Math.max(MaxHitCalculator.melee(meleeStats), MaxHitCalculator.ranged(rangedStats));
+		maxHit = Math.max(maxHit, MaxHitCalculator.best(meleeStats, MagicSpells.available(magic)));
+		b.maxHit(maxHit);
 		return b.build();
 	}
 
@@ -171,6 +169,51 @@ public final class PlayerStateProvider
 		{
 			return false;
 		}
+	}
+
+	private static CombatStats combatStats(int strength, int ranged, int magic, GearBonuses gear, CombatStats.Style style)
+	{
+		return CombatStats.builder()
+			.strength(strength)
+			.ranged(ranged)
+			.magic(magic)
+			.strengthBonus(gear.getStrength())
+			.rangedStrengthBonus(gear.getRangedStrength())
+			.magicDamagePercent((int) Math.round(gear.getMagicDamagePercent()))
+			.style(style)
+			.build();
+	}
+
+	/** Sums the worn items' bonuses; unknown items, null stats or a failing lookup contribute zero. */
+	private GearBonuses wornBonuses()
+	{
+		List<GearBonuses.Triple> triples = new ArrayList<>();
+		ItemContainer worn = client.getItemContainer(InventoryID.WORN);
+		if (itemManager == null || worn == null || worn.getItems() == null)
+		{
+			return GearBonuses.sum(triples);
+		}
+		for (Item item : worn.getItems())
+		{
+			if (item == null || item.getId() <= 0)
+			{
+				continue;
+			}
+			try
+			{
+				ItemStats stats = itemManager.getItemStats(item.getId());
+				ItemEquipmentStats eq = stats == null ? null : stats.getEquipment();
+				if (eq != null)
+				{
+					triples.add(new GearBonuses.Triple(eq.getStr(), eq.getRstr(), eq.getMdmg()));
+				}
+			}
+			catch (RuntimeException ex)
+			{
+				// unknown item: contributes nothing
+			}
+		}
+		return GearBonuses.sum(triples);
 	}
 
 	private Map<Integer, Integer> ownedItems()
@@ -219,30 +262,5 @@ public final class PlayerStateProvider
 			return;
 		}
 		owned.merge(id, qty, Integer::sum);
-	}
-
-	/**
-	 * The best standard-spellbook combat spell of each tier (strike to surge) usable at the given
-	 * magic level, e.g. level 64 yields fire strike, fire bolt, fire blast and wind wave.
-	 */
-	static List<String> availableSpells(int magicLevel)
-	{
-		List<String> spells = new ArrayList<>();
-		for (int t = 0; t < TIERS.length; t++)
-		{
-			String best = null;
-			for (int e = 0; e < ELEMENTS.length; e++)
-			{
-				if (magicLevel >= TIER_LEVELS[t][e])
-				{
-					best = ELEMENTS[e] + " " + TIERS[t];
-				}
-			}
-			if (best != null)
-			{
-				spells.add(best);
-			}
-		}
-		return spells;
 	}
 }

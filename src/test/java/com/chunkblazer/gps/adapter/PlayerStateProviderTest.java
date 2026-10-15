@@ -29,23 +29,27 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.chunkblazer.gps.combat.CombatStats;
+import com.chunkblazer.gps.combat.MagicSpells;
 import com.chunkblazer.gps.combat.MaxHitCalculator;
 import com.chunkblazer.gps.model.PlayerState;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import net.runelite.api.Client;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.Skill;
 import net.runelite.api.gameval.InventoryID;
+import net.runelite.client.game.ItemEquipmentStats;
+import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.ItemStats;
 import org.junit.jupiter.api.Test;
 
 class PlayerStateProviderTest
@@ -75,7 +79,7 @@ class PlayerStateProviderTest
 		when(client.getSkillExperience(any(Skill.class))).thenReturn(0);
 		when(client.getLocalPlayer()).thenReturn(null);
 		PlayerStateProvider p = new PlayerStateProvider(client, () -> new HashSet<>(Arrays.asList("12850", "oops")),
-			q -> q.equals("COOKS_ASSISTANT"), Collections::emptyMap);
+			q -> q.equals("COOKS_ASSISTANT"), Collections::emptyMap, null);
 		PlayerState s = p.snapshot();
 		assertEquals(33, s.getLevel("COOKING"));
 		assertTrue(s.hasUnlockedChunk(12850));
@@ -95,7 +99,7 @@ class PlayerStateProviderTest
 		Map<Integer, Integer> bank = new HashMap<>();
 		bank.put(100, 10);
 		bank.put(400, 5);
-		PlayerState s = new PlayerStateProvider(client, Collections::emptySet, q -> false, () -> bank).snapshot();
+		PlayerState s = new PlayerStateProvider(client, Collections::emptySet, q -> false, () -> bank, null).snapshot();
 		assertEquals(13, s.ownedCount(100));
 		assertEquals(1, s.ownedCount(200));
 		assertEquals(1, s.ownedCount(300));
@@ -112,11 +116,11 @@ class PlayerStateProviderTest
 		Map<Integer, Integer> bank = new HashMap<>();
 		bank.put(0, 3);
 		bank.put(9, -1);
-		PlayerState s = new PlayerStateProvider(client, Collections::emptySet, q -> false, () -> bank).snapshot();
+		PlayerState s = new PlayerStateProvider(client, Collections::emptySet, q -> false, () -> bank, null).snapshot();
 		assertEquals(1, s.getItems().size());
 		assertEquals(2, s.ownedCount(8));
 
-		PlayerState s2 = new PlayerStateProvider(client, () -> null, q -> false, () -> null).snapshot();
+		PlayerState s2 = new PlayerStateProvider(client, () -> null, q -> false, () -> null, null).snapshot();
 		assertEquals(2, s2.ownedCount(8));
 		assertTrue(s2.getUnlockedChunks().isEmpty());
 	}
@@ -131,36 +135,90 @@ class PlayerStateProviderTest
 				throw new IllegalStateException("boom");
 			}
 			return q.equals("DRUIDIC_RITUAL");
-		}, Collections::emptyMap);
+		}, Collections::emptyMap, null);
 		PlayerState s = p.snapshot();
 		assertTrue(s.hasQuest("DRUIDIC_RITUAL"));
 		assertFalse(s.hasQuest("COOKS_ASSISTANT"));
 	}
 
 	@Test
-	void maxHitIsLevelOnlyLowerBound()
+	void maxHitFromLevelsOnlyWhenNothingWorn()
 	{
 		Client client = baseClient();
 		when(client.getRealSkillLevel(Skill.STRENGTH)).thenReturn(99);
-		PlayerStateProvider p = new PlayerStateProvider(client, Collections::emptySet, q -> false, Collections::emptyMap);
+		PlayerStateProvider p = new PlayerStateProvider(client, Collections::emptySet, q -> false, Collections::emptyMap,
+			mock(ItemManager.class));
 		int melee = MaxHitCalculator.melee(CombatStats.builder().strength(99).build());
 		assertTrue(melee > 0);
-		assertTrue(p.snapshot().getMaxHit() >= melee);
-		assertTrue(p.isMaxHitApproximate());
+		assertEquals(melee, p.snapshot().getMaxHit());
+		assertFalse(p.isMaxHitApproximate());
 	}
 
 	@Test
-	void availableSpellsPicksHighestPerTier()
+	void maxHitUsesWornGearStrength()
 	{
-		assertTrue(PlayerStateProvider.availableSpells(0).isEmpty());
-		assertEquals(Collections.singletonList("wind strike"), PlayerStateProvider.availableSpells(1));
-		assertEquals(Collections.singletonList("fire strike"), PlayerStateProvider.availableSpells(13));
-		assertTrue(PlayerStateProvider.availableSpells(62).contains("wind wave"));
-		assertFalse(PlayerStateProvider.availableSpells(65).contains("water wave"));
-		assertTrue(PlayerStateProvider.availableSpells(66).contains("water wave"));
-		List<String> at99 = PlayerStateProvider.availableSpells(99);
-		assertTrue(at99.contains("fire surge"));
-		assertTrue(at99.contains("fire wave"));
-		assertTrue(at99.contains("fire strike"));
+		Client client = baseClient();
+		when(client.getRealSkillLevel(Skill.STRENGTH)).thenReturn(99);
+		ItemContainer wornC = container(new Item(4151, 1));
+		when(client.getItemContainer(InventoryID.WORN)).thenReturn(wornC);
+		ItemManager items = mock(ItemManager.class);
+		when(items.getItemStats(4151)).thenReturn(stats(82, 0, 0f));
+		PlayerStateProvider p = new PlayerStateProvider(client, Collections::emptySet, q -> false, Collections::emptyMap, items);
+		int expected = MaxHitCalculator.melee(CombatStats.builder().strength(99).strengthBonus(82).build());
+		assertTrue(expected >= 25);
+		assertEquals(expected, p.snapshot().getMaxHit());
+	}
+
+	@Test
+	void wornItemWithNullStatsOrNullEquipmentIsIgnored()
+	{
+		Client client = baseClient();
+		when(client.getRealSkillLevel(Skill.STRENGTH)).thenReturn(99);
+		ItemContainer wornC = container(new Item(4151, 1), new Item(555, 1), new Item(-1, 1), null);
+		when(client.getItemContainer(InventoryID.WORN)).thenReturn(wornC);
+		ItemManager items = mock(ItemManager.class);
+		when(items.getItemStats(4151)).thenReturn(null);
+		when(items.getItemStats(555)).thenReturn(new ItemStats(false, 0, 0, null));
+		PlayerStateProvider p = new PlayerStateProvider(client, Collections::emptySet, q -> false, Collections::emptyMap, items);
+		int melee = MaxHitCalculator.melee(CombatStats.builder().strength(99).build());
+		assertEquals(melee, p.snapshot().getMaxHit());
+	}
+
+	@Test
+	void nullItemManagerOrThrowingStatsLookupIsTolerated()
+	{
+		Client client = baseClient();
+		when(client.getRealSkillLevel(Skill.STRENGTH)).thenReturn(99);
+		ItemContainer wornC = container(new Item(4151, 1));
+		when(client.getItemContainer(InventoryID.WORN)).thenReturn(wornC);
+		int melee = MaxHitCalculator.melee(CombatStats.builder().strength(99).build());
+		assertEquals(melee, new PlayerStateProvider(client, Collections::emptySet, q -> false, Collections::emptyMap, null)
+			.snapshot().getMaxHit());
+		ItemManager items = mock(ItemManager.class);
+		when(items.getItemStats(anyInt())).thenThrow(new IllegalStateException("boom"));
+		assertEquals(melee, new PlayerStateProvider(client, Collections::emptySet, q -> false, Collections::emptyMap, items)
+			.snapshot().getMaxHit());
+	}
+
+	@Test
+	void maxHitUsesRangedStrengthAndMagicDamage()
+	{
+		Client client = baseClient();
+		when(client.getRealSkillLevel(Skill.RANGED)).thenReturn(99);
+		when(client.getRealSkillLevel(Skill.MAGIC)).thenReturn(99);
+		ItemContainer wornC = container(new Item(1, 1), new Item(2, 1));
+		when(client.getItemContainer(InventoryID.WORN)).thenReturn(wornC);
+		ItemManager items = mock(ItemManager.class);
+		when(items.getItemStats(1)).thenReturn(stats(0, 60, 0f));
+		when(items.getItemStats(2)).thenReturn(stats(0, 0, 15f));
+		PlayerStateProvider p = new PlayerStateProvider(client, Collections::emptySet, q -> false, Collections::emptyMap, items);
+		CombatStats cs = CombatStats.builder().ranged(99).magic(99).style(CombatStats.Style.ACCURATE)
+			.rangedStrengthBonus(60).magicDamagePercent(15).build();
+		assertEquals(MaxHitCalculator.best(cs, MagicSpells.available(99)), p.snapshot().getMaxHit());
+	}
+
+	private static ItemStats stats(int str, int rstr, float mdmg)
+	{
+		return new ItemStats(true, 0, 0, ItemEquipmentStats.builder().str(str).rstr(rstr).mdmg(mdmg).build());
 	}
 }

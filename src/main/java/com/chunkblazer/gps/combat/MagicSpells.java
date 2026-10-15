@@ -25,7 +25,9 @@
  */
 package com.chunkblazer.gps.combat;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.IntUnaryOperator;
@@ -35,6 +37,11 @@ import java.util.function.IntUnaryOperator;
  */
 public final class MagicSpells
 {
+	private static final String[] ELEMENT_NAMES = {"wind", "water", "earth", "fire"};
+	private static final String[] TIER_NAMES = {"strike", "bolt", "blast", "wave", "surge"};
+	private static final int[][] LEVELS = {
+		{1, 5, 9, 13}, {17, 23, 29, 35}, {41, 47, 53, 59}, {62, 66, 70, 75}, {81, 85, 90, 95}
+	};
 	private static final Map<String, Integer> FIXED = new HashMap<>();
 	private static final Map<String, IntUnaryOperator> STAVES = new HashMap<>();
 
@@ -60,6 +67,27 @@ public final class MagicSpells
 
 	private MagicSpells()
 	{
+	}
+
+	/**
+	 * @return every standard-spellbook combat spell whose magic level requirement is met
+	 * (strikes 1/5/9/13, bolts 17/23/29/35, blasts 41/47/53/59, waves 62/66/70/75, surges 81/85/90/95
+	 * in wind, water, earth, fire order)
+	 */
+	public static List<String> available(int magicLevel)
+	{
+		List<String> spells = new ArrayList<>();
+		for (int t = 0; t < TIER_NAMES.length; t++)
+		{
+			for (int e = 0; e < ELEMENT_NAMES.length; e++)
+			{
+				if (magicLevel >= LEVELS[t][e])
+				{
+					spells.add(ELEMENT_NAMES[e] + " " + TIER_NAMES[t]);
+				}
+			}
+		}
+		return spells;
 	}
 
 	/**

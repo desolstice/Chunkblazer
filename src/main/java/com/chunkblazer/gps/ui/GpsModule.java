@@ -52,6 +52,7 @@ import net.runelite.api.GameState;
 import net.runelite.api.Quest;
 import net.runelite.api.QuestState;
 import net.runelite.client.callback.ClientThread;
+import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 
@@ -68,6 +69,7 @@ public final class GpsModule
 	private final Supplier<Set<String>> openRegionIds;
 	private final BufferedImage icon;
 	private final BankCache bankCache;
+	private final ItemManager itemManager;
 
 	private volatile boolean stopped;
 	private NavigationButton button;
@@ -75,7 +77,7 @@ public final class GpsModule
 
 	public GpsModule(Client client, ClientThread clientThread, ScheduledExecutorService executor,
 		ClientToolbar clientToolbar, Supplier<String> dataDirConfig, Supplier<List<NuzlockeTask>> taskSupplier,
-		Supplier<Set<String>> openRegionIds, BufferedImage icon, BankCache bankCache)
+		Supplier<Set<String>> openRegionIds, BufferedImage icon, BankCache bankCache, ItemManager itemManager)
 	{
 		this.client = client;
 		this.clientThread = clientThread;
@@ -86,6 +88,7 @@ public final class GpsModule
 		this.openRegionIds = openRegionIds;
 		this.icon = icon;
 		this.bankCache = bankCache;
+		this.itemManager = itemManager;
 	}
 
 	/** Loads the data off the client thread, then registers the panel on the EDT. */
@@ -102,7 +105,7 @@ public final class GpsModule
 				EligibilityEngine engine = new EligibilityEngine(
 					new RequirementDeriver(quests, Overrides.load(dir), data), quests, data);
 				PlayerStateProvider provider = new PlayerStateProvider(client, openRegionIds, this::questFinished,
-					bankCache::items);
+					bankCache::items, itemManager);
 				SwingUtilities.invokeLater(() -> createPanel(data, engine, provider));
 			}
 			catch (Throwable ex)

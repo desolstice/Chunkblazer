@@ -471,7 +471,7 @@ public class ChunkBlazerPlugin extends Plugin
 		try
 		{
 			gpsModule = new GpsModule(client, clientThread, executorService, clientToolbar, config::gpsDataDir,
-				this::gpsTasks, this::gpsOpenRegionIds, icon, gpsBankCache);
+				this::gpsTasks, this::gpsOpenRegionIds, icon, gpsBankCache, itemManager);
 			gpsModule.start();
 			executorService.execute(gpsBankCache::reload);
 		}

@@ -26,6 +26,7 @@
 package com.chunkblazer.gps.adapter;
 
 import com.chunkblazer.gps.combat.CombatStats;
+import com.chunkblazer.gps.combat.MagicSpells;
 import com.chunkblazer.gps.combat.MaxHitCalculator;
 import com.chunkblazer.gps.model.PlayerState;
 import com.chunkblazer.gps.model.XpTable;
@@ -156,6 +157,6 @@ public final class SimulatedState
 			.magic(magic)
 			.style(CombatStats.Style.AGGRESSIVE)
 			.build();
-		return MaxHitCalculator.best(stats, PlayerStateProvider.availableSpells(magic));
+		return MaxHitCalculator.best(stats, MagicSpells.available(magic));
 	}
 }

@@ -261,17 +261,33 @@ public final class Selector
 			List<Missing> fail = tryAdd(trial, c);
 			if (fail != null)
 			{
-				unplannable.add(new Plan.Unplannable(c.label, fail));
+				addUnplannable(unplannable, c.label, fail);
 				continue;
 			}
 			if (trial.nodes.size() > req.getMaxNodes())
 			{
 				continue;
 			}
+			boolean added = trial.nodes.size() != current.nodes.size() || trial.goals.size() != current.goals.size();
 			current = trial;
-			selected += c.points;
+			if (added)
+			{
+				selected += c.points; // a candidate whose goals were already selected earns nothing new
+			}
 		}
 		return current;
+	}
+
+	private static void addUnplannable(List<Plan.Unplannable> unplannable, String label, List<Missing> missing)
+	{
+		for (Plan.Unplannable u : unplannable)
+		{
+			if (u.getLabel().equals(label))
+			{
+				return;
+			}
+		}
+		unplannable.add(new Plan.Unplannable(label, missing));
 	}
 
 	// ---- provider resolution ----

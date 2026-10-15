@@ -187,6 +187,16 @@ class SelectorTest
 	}
 
 	@Test
+	void unlockNextChunkGoalDoesNotCountPointsOfAlreadySelectedDuplicateTask()
+	{
+		SelectorTestSupport s = new SelectorTestSupport().state(unlocked(12850).withTaskPoints(1)).goal(GoalMode.unlockNextChunk())
+			.withLockedChunkCost(12851, 6)
+			.withTask("d", "COOKING", 1, 2, 12850).withTask("d", "COOKING", 1, 2, 12850)
+			.withTask("e", "COOKING", 1, 2, 12850).withTask("f", "COOKING", 1, 2, 12850);
+		assertEquals(3, s.select().getNodes().size()); // need 5 points: d once, e, f
+	}
+
+	@Test
 	void unlockNextChunkGoalWithNoLockedChunkSelectsNothing()
 	{
 		PrecedenceGraph g = new SelectorTestSupport().state(unlocked(12850)).goal(GoalMode.unlockNextChunk())

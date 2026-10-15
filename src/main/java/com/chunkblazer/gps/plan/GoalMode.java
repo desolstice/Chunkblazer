@@ -25,6 +25,7 @@
  */
 package com.chunkblazer.gps.plan;
 
+import java.util.Locale;
 import lombok.Value;
 
 /** What the planner should optimise for. Use the static factories. */
@@ -61,7 +62,7 @@ public class GoalMode
 
 	public static GoalMode trainSkill(String skill, int level)
 	{
-		return new GoalMode(Kind.TRAIN_SKILL, skill == null ? null : skill.toUpperCase(java.util.Locale.ROOT), level);
+		return new GoalMode(Kind.TRAIN_SKILL, skill == null ? null : skill.toUpperCase(Locale.ROOT), level);
 	}
 
 	public static GoalMode maxGear()

@@ -1,0 +1,1 @@
+{"schema":1,"monsters":[{"ids":[1],"name":"Test cow","hp":8,"combatLevel":2,"maxHit":1,"attackStyles":["crush"],"defenceLevel":2,"defence":{"stab":0,"slash":0,"crush":0,"magic":-21,"ranged":0}}]}

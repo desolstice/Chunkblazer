@@ -1,0 +1,1 @@
+{"schema":1,"edges":[{"id":"test_tele","kind":"SPELL","name":"Test Teleport","from":null,"to":{"x":3213,"y":3424,"plane":0},"ticks":8,"requires":{"skills":{"MAGIC":25},"quests":[],"items":[{"ids":[554],"qty":1}]},"consumesItem":false}]}

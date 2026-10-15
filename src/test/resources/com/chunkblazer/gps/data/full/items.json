@@ -1,0 +1,1 @@
+{"schema":1,"items":[{"id":1291,"name":"Test sword","members":false,"slot":"weapon","requirements":{"skills":{"ATTACK":1},"quests":[]},"sources":[{"type":"SHOP","shop":"Test shop","price":26}],"teleport":null}]}

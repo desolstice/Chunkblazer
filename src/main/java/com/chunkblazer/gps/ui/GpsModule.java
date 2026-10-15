@@ -25,32 +25,44 @@
  */
 package com.chunkblazer.gps.ui;
 
+import com.chunkblazer.NuzlockeChunk;
 import com.chunkblazer.NuzlockeTask;
 import com.chunkblazer.gps.adapter.BankCache;
 import com.chunkblazer.gps.adapter.PlayerStateProvider;
 import com.chunkblazer.gps.data.GpsData;
 import com.chunkblazer.gps.data.GpsDataLocator;
 import com.chunkblazer.gps.data.GpsDataStore;
+import com.chunkblazer.gps.data.Tile;
 import com.chunkblazer.gps.eligibility.EligibilityEngine;
 import com.chunkblazer.gps.eligibility.Overrides;
 import com.chunkblazer.gps.eligibility.RequirementDeriver;
 import com.chunkblazer.gps.model.PlayerState;
 import com.chunkblazer.gps.model.QuestCatalog;
 import com.chunkblazer.gps.model.QuestHelperEntry;
+import com.chunkblazer.gps.model.QuestModel;
+import com.chunkblazer.gps.plan.GoalMode;
+import com.chunkblazer.gps.plan.TaskRef;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.IntUnaryOperator;
 import java.util.function.Supplier;
 import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.Quest;
+import net.runelite.api.Player;
 import net.runelite.api.QuestState;
+import net.runelite.api.coords.WorldPoint;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.ui.ClientToolbar;
@@ -71,14 +83,44 @@ public final class GpsModule
 	private final BankCache bankCache;
 	private final ItemManager itemManager;
 
+	private final PlanSources sources;
+	private final PlanHighlight highlight;
+	private final ReplanTrigger trigger = new ReplanTrigger(System::currentTimeMillis,
+		ReplanTrigger.DEFAULT_WINDOW_MILLIS, this::runPlan);
+
 	private volatile boolean stopped;
 	private NavigationButton button;
 	private volatile GpsPanel panel;
+	private volatile GpsPlanPanel planPanel;
+	private volatile PlanRunner runner;
+	private volatile PlayerStateProvider provider;
+	private volatile ScheduledFuture<?> tick;
+
+	/** Plugin-side catalog reads needed to build the planner's task list (read on the client thread). */
+	public static final class PlanSources
+	{
+		private final Supplier<List<NuzlockeChunk>> chunks;
+		private final Supplier<List<NuzlockeTask>> globalTasks;
+		private final IntUnaryOperator unlockCost;
+		private final Supplier<Set<String>> completedTaskIds;
+
+		public PlanSources(Supplier<List<NuzlockeChunk>> chunks, Supplier<List<NuzlockeTask>> globalTasks,
+			IntUnaryOperator unlockCost, Supplier<Set<String>> completedTaskIds)
+		{
+			this.chunks = chunks;
+			this.globalTasks = globalTasks;
+			this.unlockCost = unlockCost;
+			this.completedTaskIds = completedTaskIds;
+		}
+	}
 
 	public GpsModule(Client client, ClientThread clientThread, ScheduledExecutorService executor,
 		ClientToolbar clientToolbar, Supplier<String> dataDirConfig, Supplier<List<NuzlockeTask>> taskSupplier,
-		Supplier<Set<String>> openRegionIds, BufferedImage icon, BankCache bankCache, ItemManager itemManager)
+		Supplier<Set<String>> openRegionIds, BufferedImage icon, BankCache bankCache, ItemManager itemManager,
+		PlanSources sources, PlanHighlight highlight)
 	{
+		this.sources = sources;
+		this.highlight = highlight;
 		this.client = client;
 		this.clientThread = clientThread;
 		this.executor = executor;
@@ -106,7 +148,10 @@ public final class GpsModule
 					new RequirementDeriver(quests, Overrides.load(dir), data), quests, data);
 				PlayerStateProvider provider = new PlayerStateProvider(client, openRegionIds, this::questFinished,
 					bankCache::items, itemManager);
-				SwingUtilities.invokeLater(() -> createPanel(data, engine, provider));
+				this.provider = provider;
+				runner = new PlanRunner(data, quests, new RequirementDeriver(quests, Overrides.load(dir), data));
+				tick = executor.scheduleWithFixedDelay(this::tickSafely, 1, 1, TimeUnit.SECONDS);
+				SwingUtilities.invokeLater(() -> createPanel(data, engine, provider, quests));
 			}
 			catch (Throwable ex)
 			{
@@ -128,7 +173,7 @@ public final class GpsModule
 	}
 
 	// EDT
-	private void createPanel(GpsData data, EligibilityEngine engine, PlayerStateProvider provider)
+	private void createPanel(GpsData data, EligibilityEngine engine, PlayerStateProvider provider, QuestCatalog quests)
 	{
 		if (stopped)
 		{
@@ -155,14 +200,128 @@ public final class GpsModule
 				log.warn("GPS snapshot failed", ex);
 			}
 		});
-		panel = new GpsPanel(model, data, requester);
+		planPanel = new GpsPlanPanel(trigger::request, highlight, data,
+			id -> quests.get(id).map(QuestModel::getName).orElse(null));
+		panel = new GpsPanel(model, data, requester, planPanel, new SimulatePanel());
 		button = NavigationButton.builder().tooltip("GPS").icon(icon).priority(9).panel(panel).build();
 		clientToolbar.addNavigation(button);
+	}
+
+	/** Asks for a (debounced) re-plan when "Auto re-plan" is on. Any thread; the plugin's events call this. */
+	public void requestReplan()
+	{
+		GpsPlanPanel p = planPanel;
+		if (p != null && p.autoReplan())
+		{
+			trigger.request();
+		}
+	}
+
+	private void tickSafely()
+	{
+		try
+		{
+			trigger.tick();
+		}
+		catch (RuntimeException ex)
+		{
+			log.warn("GPS re-plan tick failed", ex);
+		}
+	}
+
+	/** The trigger action: snapshot on the client thread, plan on the executor, show on the EDT. */
+	private void runPlan()
+	{
+		boolean handedOff = false;
+		try
+		{
+			GpsPanel gp = panel;
+			GpsPlanPanel pp = planPanel;
+			PlanRunner r = runner;
+			PlayerStateProvider prov = provider;
+			if (gp == null || pp == null || r == null || prov == null)
+			{
+				return;
+			}
+			PlayerState sim = gp.simulatedState();
+			GoalMode goal = pp.goal();
+			clientThread.invoke(() ->
+			{
+				boolean ok = false;
+				try
+				{
+					boolean loggedIn = client.getGameState() == GameState.LOGGED_IN && client.getLocalPlayer() != null;
+					PlanRunner.Inputs in = sim == null && !loggedIn ? null : gather(sim, loggedIn, prov);
+					executor.submit(() -> planOffThread(r, pp, sim != null, loggedIn, in, goal));
+					ok = true;
+				}
+				catch (RuntimeException ex)
+				{
+					log.warn("GPS plan snapshot failed", ex);
+				}
+				finally
+				{
+					if (!ok)
+					{
+						trigger.finished();
+					}
+				}
+			});
+			handedOff = true;
+		}
+		finally
+		{
+			if (!handedOff)
+			{
+				trigger.finished();
+			}
+		}
+	}
+
+	// Client thread.
+	private PlanRunner.Inputs gather(PlayerState sim, boolean loggedIn, PlayerStateProvider prov)
+	{
+		PlayerState state = sim != null ? sim : prov.snapshot();
+		Tile position = null;
+		Player me = client.getLocalPlayer();
+		if (sim == null && loggedIn && me != null && me.getWorldLocation() != null)
+		{
+			WorldPoint wp = me.getWorldLocation();
+			position = new Tile(wp.getX(), wp.getY(), wp.getPlane(), false, "PLAYER");
+		}
+		List<NuzlockeChunk> chunks = new ArrayList<>(sources.chunks.get());
+		List<TaskRef> refs = PlanRunner.taskRefs(chunks, sources.globalTasks.get(), state, sources.unlockCost);
+		return new PlanRunner.Inputs(state, position, refs, new HashSet<>(sources.completedTaskIds.get()), chunks);
+	}
+
+	private void planOffThread(PlanRunner r, GpsPlanPanel pp, boolean simulate, boolean loggedIn,
+		PlanRunner.Inputs in, GoalMode goal)
+	{
+		try
+		{
+			PlanRunner.Result result = r.run(simulate, loggedIn, in, goal);
+			SwingUtilities.invokeLater(() -> pp.show(result));
+		}
+		catch (RuntimeException | StackOverflowError ex)
+		{
+			log.warn("GPS planning failed", ex);
+			SwingUtilities.invokeLater(() -> pp.show(new PlanRunner.Result(null, "Planning failed: " + ex)));
+		}
+		finally
+		{
+			trigger.finished();
+		}
 	}
 
 	public void stop()
 	{
 		stopped = true;
+		ScheduledFuture<?> t = tick;
+		if (t != null)
+		{
+			t.cancel(false);
+		}
+		highlight.clear();
 		SwingUtilities.invokeLater(() ->
 		{
 			if (button != null)

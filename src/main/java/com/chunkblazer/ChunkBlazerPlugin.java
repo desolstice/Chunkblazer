@@ -288,6 +288,8 @@ public class ChunkBlazerPlugin extends Plugin
 	private ChunkBlazerPanel panel;
 	private NavigationButton navButton;
 	private GpsModule gpsModule;
+	@Getter
+	private final com.chunkblazer.gps.ui.PlanHighlight planHighlight = new com.chunkblazer.gps.ui.PlanHighlight();
 
 	@Inject
 	private ItemManager itemManager;
@@ -472,7 +474,9 @@ public class ChunkBlazerPlugin extends Plugin
 		try
 		{
 			gpsModule = new GpsModule(client, clientThread, executorService, clientToolbar, config::gpsDataDir,
-				this::gpsTasks, this::gpsOpenRegionIds, icon, gpsBankCache, itemManager);
+				this::gpsTasks, this::gpsOpenRegionIds, icon, gpsBankCache, itemManager,
+				new GpsModule.PlanSources(() -> allChunks, () -> globalTasks, this::getRegionUnlockCost,
+					this::getCompletedTaskIds), planHighlight);
 			gpsModule.start();
 			executorService.execute(gpsBankCache::reload);
 		}
@@ -846,6 +850,10 @@ public class ChunkBlazerPlugin extends Plugin
 	@Subscribe
 	public void onItemContainerChanged(ItemContainerChanged event)
 	{
+		if (event.getContainerId() == InventoryID.INV && gpsModule != null)
+		{
+			gpsModule.requestReplan();
+		}
 		if (event.getContainerId() != InventoryID.BANK || event.getItemContainer() == null)
 		{
 			return;
@@ -5628,7 +5636,11 @@ public class ChunkBlazerPlugin extends Plugin
 	@Subscribe
 	public void onStatChanged(StatChanged event)
 	{
-		realLevels.put(event.getSkill(), event.getLevel());
+		Integer before = realLevels.put(event.getSkill(), event.getLevel());
+		if (before != null && event.getLevel() > before && gpsModule != null)
+		{
+			gpsModule.requestReplan();
+		}
 	}
 
 	/**
@@ -5956,6 +5968,10 @@ public class ChunkBlazerPlugin extends Plugin
 		// --- settle up once, regardless of batch size ---
 		addPoints(totalPoints);
 		markTasksCompleted(completedIds);
+		if (gpsModule != null)
+		{
+			gpsModule.requestReplan();
+		}
 
 		// Clear progress data for these tasks
 		saveActiveTasks();

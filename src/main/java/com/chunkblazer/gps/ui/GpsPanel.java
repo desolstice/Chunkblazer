@@ -47,6 +47,7 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
+import javax.swing.JTabbedPane;
 import javax.swing.JTextField;
 import javax.swing.JToggleButton;
 import javax.swing.SpinnerNumberModel;
@@ -67,7 +68,7 @@ public class GpsPanel extends PluginPanel
 	private static final Color DOABLE = new Color(0x4caf50);
 	private static final Color BLOCKED = new Color(0xe57373);
 	private static final Color UNKNOWN = new Color(0xffb74d);
-	private static final String[] SKILLS = {
+	static final String[] SKILLS = {
 		"ATTACK", "DEFENCE", "STRENGTH", "HITPOINTS", "RANGED", "PRAYER", "MAGIC", "COOKING", "WOODCUTTING",
 		"FLETCHING", "FISHING", "FIREMAKING", "CRAFTING", "SMITHING", "MINING", "HERBLORE", "AGILITY", "THIEVING",
 		"SLAYER", "FARMING", "RUNECRAFT", "HUNTER", "CONSTRUCTION"
@@ -89,16 +90,30 @@ public class GpsPanel extends PluginPanel
 	private final JPanel list = new JPanel();
 	private final Timer coalesce;
 
+	private final JPanel tasksTab = new JPanel(new BorderLayout());
+	private final JTabbedPane tabs = new JTabbedPane();
+	private final GpsPlanPanel planPanel;
+
 	private PlayerState realState = PlayerState.freshAccount();
 	private SimulatedState simulated;
+	/** The simulated state while the Tasks tab is in Simulate mode, else null. Read by the planner from any thread. */
+	private volatile PlayerState simulatedView;
 
-	public GpsPanel(GpsPanelModel model, GpsData data, Consumer<BiConsumer<PlayerState, GpsPanelModel>> snapshotRequester)
+	public GpsPanel(GpsPanelModel model, GpsData data, Consumer<BiConsumer<PlayerState, GpsPanelModel>> snapshotRequester,
+		GpsPlanPanel planPanel, SimulatePanel simulatePanel)
 	{
 		super(false);
 		this.model = model;
 		this.snapshotRequester = snapshotRequester;
+		this.planPanel = planPanel;
 		setLayout(new BorderLayout());
 		setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
+		tasksTab.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
+		tabs.addTab("Tasks", tasksTab);
+		tabs.addTab("Plan", planPanel);
+		tabs.addTab("Simulate", simulatePanel);
+		tabs.addChangeListener(e -> syncPlanTab());
+		add(tabs, BorderLayout.CENTER);
 
 		JPanel top = new JPanel();
 		top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
@@ -168,7 +183,7 @@ public class GpsPanel extends PluginPanel
 			levelEditor.add(spinner);
 		}
 		top.add(levelEditor);
-		add(top, BorderLayout.NORTH);
+		tasksTab.add(top, BorderLayout.NORTH);
 
 		list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
 		JPanel holder = new JPanel(new BorderLayout());
@@ -176,12 +191,37 @@ public class GpsPanel extends PluginPanel
 		JScrollPane scroll = new JScrollPane(holder);
 		scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
 		scroll.getVerticalScrollBar().setUnitIncrement(16);
-		add(scroll, BorderLayout.CENTER);
+		tasksTab.add(scroll, BorderLayout.CENTER);
+	}
+
+	/** The simulated state while Simulate is on, else null (real mode). Safe from any thread. */
+	public PlayerState simulatedState()
+	{
+		return simulatedView;
+	}
+
+	private void syncPlanTab()
+	{
+		if (tabs.getSelectedComponent() == planPanel)
+		{
+			planPanel.tabShown();
+		}
+		else
+		{
+			planPanel.tabHidden();
+		}
+	}
+
+	@Override
+	public void onDeactivate()
+	{
+		planPanel.tabHidden();
 	}
 
 	@Override
 	public void onActivate()
 	{
+		syncPlanTab();
 		if (!simulateToggle.isSelected())
 		{
 			refresh();
@@ -225,6 +265,7 @@ public class GpsPanel extends PluginPanel
 		{
 			levelEditor.setVisible(false);
 			simulated = null;
+			simulatedView = null;
 			refresh();
 		}
 	}
@@ -232,6 +273,7 @@ public class GpsPanel extends PluginPanel
 	private void render()
 	{
 		PlayerState state = simulateToggle.isSelected() && simulated != null ? simulated.build() : realState;
+		simulatedView = simulateToggle.isSelected() && simulated != null ? state : null;
 		GpsPanelModel.Filter f = GpsPanelModel.Filter.all();
 		f.setShowDoable(doableBox.isSelected());
 		f.setShowBlocked(blockedBox.isSelected());

@@ -118,7 +118,9 @@ class EligibilityEngineTest
 		PlayerState onlyFirst = PlayerState.freshAccount().withUnlockedChunk(12083);
 		Eligibility e = eng.evaluateQuest("A_PORCINE_OF_INTEREST", onlyFirst);
 		assertEquals(Eligibility.Status.BLOCKED, e.getStatus());
-		assertTrue(e.getMissing().contains(new Missing(Missing.Kind.CHUNK, "Chunk 12338 not unlocked")));
+		assertTrue(e.getMissing().contains(Missing.chunkLocked(12338)));
+		assertTrue(e.getMissing().contains(Missing.chunkLocked(12339)));
+		assertTrue(e.getMissing().contains(Missing.chunkLocked(12596)));
 		assertTrue(e.getMissing().stream().noneMatch(m -> m.getText().contains("12083")));
 	}
 
@@ -133,6 +135,14 @@ class EligibilityEngineTest
 		EligibilityEngine eng = engine(GpsData.empty(null));
 		assertEquals(Eligibility.Status.DOABLE, eng.evaluateQuest("A_PORCINE_OF_INTEREST", s).getStatus());
 		assertEquals(Eligibility.Status.DOABLE, eng.evaluateQuest("A_PORCINE_OF_INTEREST", s.withQuestComplete("A_PORCINE_OF_INTEREST", 1)).getStatus());
+	}
+
+	@Test
+	void completedQuestWithLockedChunksIsBlocked()
+	{
+		EligibilityEngine eng = engine(GpsData.empty(null));
+		PlayerState s = PlayerState.freshAccount().withQuestComplete("A_PORCINE_OF_INTEREST", 1);
+		assertEquals(Eligibility.Status.BLOCKED, eng.evaluateQuest("A_PORCINE_OF_INTEREST", s).getStatus());
 	}
 
 	@Test

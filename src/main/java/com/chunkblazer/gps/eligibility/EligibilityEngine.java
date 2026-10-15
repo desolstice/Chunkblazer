@@ -85,7 +85,7 @@ public final class EligibilityEngine
 		{
 			if (!state.hasUnlockedChunk(chunk))
 			{
-				Missing m = new Missing(Missing.Kind.CHUNK, "Chunk " + chunk + " not unlocked");
+				Missing m = Missing.chunkLocked(chunk);
 				if (seen.add(m))
 				{
 					missing.add(m);

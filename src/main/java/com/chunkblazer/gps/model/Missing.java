@@ -40,4 +40,10 @@ public class Missing
 
 	Kind kind;
 	String text;
+
+	/** The single place that words a locked-chunk requirement. */
+	public static Missing chunkLocked(int chunk)
+	{
+		return new Missing(Kind.CHUNK, "Chunk " + chunk + " not unlocked");
+	}
 }

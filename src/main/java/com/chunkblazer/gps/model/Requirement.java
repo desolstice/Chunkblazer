@@ -166,7 +166,7 @@ public final class Requirement
 		{
 			if (!state.hasUnlockedChunk(c))
 			{
-				out.add(new Missing(Missing.Kind.CHUNK, "Chunk " + c + " not unlocked"));
+				out.add(Missing.chunkLocked(c));
 			}
 		}
 		for (String u : unknown)

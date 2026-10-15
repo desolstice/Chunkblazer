@@ -77,6 +77,33 @@ public final class GpsTestFixtures
 		}
 	}
 
+	/** Loads a temp data dir holding only training_methods.json with the given JSON. */
+	public static GpsData dataWithTraining(String trainingJson)
+	{
+		return dataWithAll(null, null, null, null, trainingJson);
+	}
+
+	/** Loads a temp data dir with transport, items, locations, quests and training JSON; null skips the file. */
+	public static GpsData dataWithAll(String transportJson, String itemsJson, String locationsJson, String questsJson,
+		String trainingJson)
+	{
+		try
+		{
+			Path d = Files.createTempDirectory("gps-fixture");
+			d.toFile().deleteOnExit();
+			write(d, "transport.json", transportJson);
+			write(d, "items.json", itemsJson);
+			write(d, "locations.json", locationsJson);
+			write(d, "quests.json", questsJson);
+			write(d, "training_methods.json", trainingJson);
+			return GpsDataStore.load(d);
+		}
+		catch (IOException e)
+		{
+			throw new IllegalStateException(e);
+		}
+	}
+
 	private static void write(Path dir, String file, String json) throws IOException
 	{
 		if (json != null)

@@ -40,7 +40,24 @@ class PlayerStateTest
 		assertEquals(1, s.getLevel("NOT_A_SKILL"));
 		assertEquals(3, s.getCombatLevel());
 		assertEquals(0, s.getQuestPoints());
-		assertEquals(0, s.getMaxHit());
+		assertEquals(1, s.getMaxHit());
+	}
+
+	@Test
+	void unsetMaxHitIsDerivedFromLevelsNeverZero()
+	{
+		assertEquals(1, PlayerState.builder().build().getMaxHit());
+		assertTrue(PlayerState.builder().level("STRENGTH", 60).build().getMaxHit() > 5);
+		assertEquals(12, PlayerState.builder().maxHit(12).build().getMaxHit());
+	}
+
+	@Test
+	void derivedMaxHitFollowsProjectedLevels()
+	{
+		PlayerState a = PlayerState.freshAccount();
+		PlayerState b = a.withXp("STRENGTH", XpTable.xpForLevel(70));
+		assertTrue(b.getMaxHit() > a.getMaxHit());
+		assertEquals(12, PlayerState.builder().maxHit(12).build().withXp("STRENGTH", XpTable.xpForLevel(70)).getMaxHit());
 	}
 
 	@Test

@@ -106,6 +106,7 @@ class NodeFactoryTest
 		assertNotNull(chain.get(0).getLocation().getTile());
 		assertEquals(chain.get(0).getLocation().getTile(), chain.get(1).getLocation().getTile());
 		assertTrue(chain.get(1).getLocation().isApproximate());
+		assertEquals("CARRY", chain.get(1).getLocation().getSource());
 	}
 
 	@Test
@@ -188,5 +189,24 @@ class NodeFactoryTest
 			"{\"schema\":1,\"items\":[{\"id\":554,\"name\":\"Fire rune\",\"members\":false,\"slot\":null,\"requirements\":{\"skills\":{},\"quests\":[]},\"sources\":[{\"type\":\"SHOP\",\"shop\":\"Nowhere Shop\",\"price\":17},{\"type\":\"DROP\",\"npc\":\"Goblin\"}],\"teleport\":null}]}",
 			null, null, null);
 		assertFalse(factory(d, Collections.emptyMap()).acquireItem(554, 1).isPresent());
+	}
+
+	@Test
+	void trainingTieOnXpPerHourPrefersLowestMinLevel()
+	{
+		GpsData d = GpsTestFixtures.dataWithTraining("{\"schema\":1,\"methods\":[{\"skill\":\"COOKING\",\"name\":\"High\",\"minLevel\":10,\"maxLevel\":99,\"xpPerHour\":5000,\"location\":null,\"items\":[],\"approximate\":true},"
+			+ "{\"skill\":\"COOKING\",\"name\":\"Low\",\"minLevel\":1,\"maxLevel\":99,\"xpPerHour\":5000,\"location\":null,\"items\":[],\"approximate\":true}]}");
+		assertTrue(factory(d, Collections.emptyMap()).trainingNode("COOKING", 40).get().getLabel().contains("Low"));
+	}
+
+	@Test
+	void acquireItemPicksCheapestLocatedShop()
+	{
+		GpsData d = GpsTestFixtures.dataWith("{\"schema\":1,\"edges\":[]}",
+			"{\"schema\":1,\"items\":[{\"id\":554,\"name\":\"Fire rune\",\"members\":false,\"slot\":null,\"requirements\":{\"skills\":{},\"quests\":[]},\"sources\":[{\"type\":\"SHOP\",\"shop\":\"Dear Shop\",\"price\":20},{\"type\":\"SHOP\",\"shop\":\"Cheap Shop\",\"price\":10}],\"teleport\":null}]}",
+			"{\"schema\":1,\"entries\":[{\"name\":\"Dear Shop\",\"kind\":\"SHOP\",\"ids\":[],\"x\":3000,\"y\":3000,\"plane\":0},{\"name\":\"Cheap Shop\",\"kind\":\"SHOP\",\"ids\":[],\"x\":3253,\"y\":3401,\"plane\":0}]}");
+		PlanNode n = factory(d, Collections.emptyMap()).acquireItem(554, 1).get();
+		assertTrue(n.getLabel().contains("Cheap Shop"));
+		assertEquals(3253, (int) n.getLocation().getTile().getX());
 	}
 }

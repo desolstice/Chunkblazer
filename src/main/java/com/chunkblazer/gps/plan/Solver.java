@@ -39,6 +39,8 @@ import java.util.function.IntBinaryOperator;
 public final class Solver
 {
 	private static final int CHECK_EVERY = 256;
+	/** Clamp so the nanosecond deadline (and the wrap-safe comparison against nanoTime) cannot overflow. */
+	private static final long MAX_DEADLINE_MILLIS = Long.MAX_VALUE / 4 / 1_000_000L;
 
 	private Solver()
 	{
@@ -51,7 +53,7 @@ public final class Solver
 		{
 			return new int[0];
 		}
-		long deadline = System.nanoTime() + deadlineMillis * 1_000_000L;
+		long deadline = System.nanoTime() + Math.min(Math.max(0L, deadlineMillis), MAX_DEADLINE_MILLIS) * 1_000_000L;
 		int[] order = construct(n, cost, preds);
 		if (valid(order, preds))
 		{
@@ -240,6 +242,9 @@ public final class Solver
 			boolean any = false;
 			for (int i : shuffledStarts(n))
 			{
+				long fwd = 0;
+				long rev = 0;
+				boolean dirty = false;
 				for (int j = i + 1; j < n; j++)
 				{
 					if (tick())
@@ -259,12 +264,22 @@ public final class Solver
 					{
 						break; // every longer segment also contains the pair
 					}
-					long fwd = 0;
-					long rev = 0;
-					for (int k = i; k < j; k++)
+					// incremental: only the newly appended leg (j-1 -> j) is evaluated per step
+					if (dirty)
 					{
-						fwd += cost.applyAsInt(order[k], order[k + 1]);
-						rev += cost.applyAsInt(order[k + 1], order[k]);
+						fwd = 0;
+						rev = 0;
+						for (int k = i; k < j; k++)
+						{
+							fwd += cost.applyAsInt(order[k], order[k + 1]);
+							rev += cost.applyAsInt(order[k + 1], order[k]);
+						}
+						dirty = false;
+					}
+					else
+					{
+						fwd += cost.applyAsInt(order[j - 1], order[j]);
+						rev += cost.applyAsInt(order[j], order[j - 1]);
 					}
 					int prev = node(i - 1);
 					long oldCost = cost.applyAsInt(prev, order[i]) + fwd;
@@ -284,6 +299,7 @@ public final class Solver
 						}
 						reindex();
 						any = true;
+						dirty = true; // segment contents changed; recompute the running sums
 					}
 				}
 			}

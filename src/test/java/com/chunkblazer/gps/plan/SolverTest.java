@@ -239,6 +239,42 @@ class SolverTest
 		assertFalse(Solver.valid(order, preds));
 	}
 
+	@Test
+	void hugeDeadlineDoesNotOverflowAndMatchesALongOne()
+	{
+		Random r = new Random(5);
+		int n = 40;
+		int[] pos = new int[n + 1];
+		for (int i = 1; i <= n; i++)
+		{
+			pos[i] = r.nextInt(1000);
+		}
+		int[] huge = Solver.solve(n, lineCost(pos), noPreds(n), 3, Long.MAX_VALUE);
+		int[] normal = Solver.solve(n, lineCost(pos), noPreds(n), 3, 20_000);
+		assertArrayEquals(normal, huge);
+		assertTrue(Solver.valid(Solver.solve(n, lineCost(pos), noPreds(n), 3, -5), noPreds(n)));
+	}
+
+	@Test
+	void twoOptEvaluationCountGrowsQuadratically()
+	{
+		int n = 200;
+		int[] pos = new int[n + 1];
+		for (int i = 1; i <= n; i++)
+		{
+			pos[i] = i * 10; // nearest neighbour is already optimal, so this measures one pass of each local search
+		}
+		long[] calls = {0};
+		IntBinaryOperator counting = (a, b) ->
+		{
+			calls[0]++;
+			return Math.abs(pos[a] - pos[b]);
+		};
+		int[] order = Solver.solve(n, counting, noPreds(n), 1, 20_000);
+		assertEquals(10L * n, Solver.pathCost(order, lineCost(pos)));
+		assertTrue(calls[0] < 1_500_000L, "cost evaluations " + calls[0]);
+	}
+
 	private static int indexOf(int[] a, int v)
 	{
 		for (int i = 0; i < a.length; i++)

@@ -28,11 +28,17 @@ package com.chunkblazer.gps.plan;
 import com.chunkblazer.NuzlockeTask;
 import com.chunkblazer.TaskConstraints;
 import com.chunkblazer.gps.data.ItemDef;
+import com.chunkblazer.gps.data.QuestDef;
 import com.chunkblazer.gps.data.Requirements;
+import com.chunkblazer.gps.data.Tile;
 import com.chunkblazer.gps.model.ItemNeed;
 import com.chunkblazer.gps.model.Missing;
 import com.chunkblazer.gps.model.PlayerState;
+import com.chunkblazer.gps.model.QuestModel;
 import com.chunkblazer.gps.model.Requirement;
+import com.chunkblazer.gps.model.XpTable;
+import com.chunkblazer.gps.travel.TileMath;
+import com.chunkblazer.gps.travel.TravelConfig;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -58,6 +64,8 @@ import java.util.Set;
  */
 public final class Selector
 {
+	/** Estimated ticks of grind a training node represents; a quest chain must be cheaper than travel plus this. */
+	public static final int TRAINING_PENALTY_TICKS = 200;
 	private static final int MAX_DEPTH = 4;
 
 	private final PlanRequest req;
@@ -409,7 +417,16 @@ public final class Selector
 			return existing;
 		}
 		Optional<PlanNode> t = factory.trainingNode(skill, level);
-		if (!t.isPresent() || p.depth + 1 > MAX_DEPTH)
+		if (p.depth + 1 > MAX_DEPTH)
+		{
+			return null;
+		}
+		List<PlanNode> offer = questOffer(w, p, skill, level, t);
+		if (offer != null)
+		{
+			return addChain(w, offer, p.depth + 1, queue);
+		}
+		if (!t.isPresent())
 		{
 			return null;
 		}
@@ -450,13 +467,200 @@ public final class Selector
 		{
 			return null;
 		}
+		return addChain(w, chain, p.depth + 1, queue);
+	}
+
+	/** Adds a quest step chain as providers; precedence is on its last step, whose id is returned. */
+	private static String addChain(Work w, List<PlanNode> chain, int depth, Deque<Pending> queue)
+	{
 		for (PlanNode s : chain)
 		{
 			w.nodes.putIfAbsent(s.getId(), s);
 			w.preds.computeIfAbsent(s.getId(), k -> new LinkedHashSet<>()).addAll(s.getAfter());
-			queue.add(new Pending(s, p.depth + 1));
+			queue.add(new Pending(s, depth));
 		}
 		return chain.get(chain.size() - 1).getId();
+	}
+
+	/**
+	 * The cheapest quest chain whose rewards cover the xp shortfall for the level and that needs at most one more
+	 * provider itself, if it beats training (travel proxy plus {@link #TRAINING_PENALTY_TICKS}); otherwise null.
+	 * Choice (lamp) xp valid for the skill counts once, and is added to the chain's last step so the projected state
+	 * really contains it.
+	 */
+	private List<PlanNode> questOffer(Work w, Pending p, String skill, int level, Optional<PlanNode> training)
+	{
+		if (req.getQuests() == null)
+		{
+			return null;
+		}
+		long shortfall = (long) XpTable.xpForLevel(level) - state.getXp(skill);
+		double trainingCost = Double.MAX_VALUE;
+		if (training.isPresent())
+		{
+			Tile loc = training.get().getLocation() == null ? null : training.get().getLocation().getTile();
+			double travel = loc != null && loc.isKnown() && req.getStart() != null && req.getStart().isKnown()
+				? walkProxy(req.getStart(), loc) : 0;
+			trainingCost = travel + TRAINING_PENALTY_TICKS;
+		}
+		List<QuestModel> models = new ArrayList<>(req.getQuests().all());
+		models.sort(Comparator.comparing(QuestModel::getId));
+		List<PlanNode> best = null;
+		double bestCost = trainingCost;
+		for (QuestModel q : models)
+		{
+			if (state.hasQuest(q.getId()) || q.getId().equals(p.node.getQuestId()) || w.hasQuest(q.getId()))
+			{
+				continue;
+			}
+			long direct = rewardXp(q, skill);
+			long choice = choiceXp(q, skill);
+			if (direct + choice < shortfall || !needsAtMostOneProvider(q, skill))
+			{
+				continue;
+			}
+			List<PlanNode> chain = new ArrayList<>(factory.questChain(q.getId(), 0));
+			if (chain.isEmpty())
+			{
+				continue;
+			}
+			double cost = chainProxy(chain);
+			if (cost < bestCost)
+			{
+				bestCost = cost;
+				if (direct < shortfall)
+				{
+					int last = chain.size() - 1;
+					PlanNode ln = chain.get(last);
+					chain.set(last, ln.toBuilder()
+						.effects(ln.getEffects().plus(Effects.builder().xp(skill, choice).build())).build());
+				}
+				best = chain;
+			}
+		}
+		return best;
+	}
+
+	private static double walkProxy(Tile a, Tile b)
+	{
+		return TileMath.tileDistance(a, b) * TravelConfig.WALK_TICKS_PER_TILE;
+	}
+
+	/** Straight-line walking estimate from the start through the chain's known step tiles in order. */
+	private double chainProxy(List<PlanNode> chain)
+	{
+		Tile prev = req.getStart() != null && req.getStart().isKnown() ? req.getStart() : null;
+		double total = 0;
+		for (PlanNode n : chain)
+		{
+			Tile t = n.getLocation() == null ? null : n.getLocation().getTile();
+			if (t == null || !t.isKnown())
+			{
+				continue;
+			}
+			if (prev != null)
+			{
+				total += walkProxy(prev, t);
+			}
+			prev = t;
+		}
+		return total;
+	}
+
+	private static long rewardXp(QuestModel q, String skill)
+	{
+		long xp = 0;
+		if (q.getRewards() != null)
+		{
+			for (Map.Entry<String, Integer> e : q.getRewards().getXp().entrySet())
+			{
+				if (e.getKey() != null && e.getKey().equalsIgnoreCase(skill) && e.getValue() != null)
+				{
+					xp += e.getValue();
+				}
+			}
+		}
+		return xp;
+	}
+
+	/** The largest single choice reward valid for the skill (empty skill list or "ANY" means every skill). */
+	private static long choiceXp(QuestModel q, String skill)
+	{
+		long best = 0;
+		if (q.getRewards() != null)
+		{
+			for (QuestDef.ChoiceXp c : q.getRewards().getChoiceXp())
+			{
+				if (c == null)
+				{
+					continue;
+				}
+				boolean valid = c.getSkills().isEmpty();
+				for (String s : c.getSkills())
+				{
+					valid |= s != null && (s.equalsIgnoreCase(skill) || s.equalsIgnoreCase("ANY"));
+				}
+				if (valid)
+				{
+					best = Math.max(best, c.getAmount());
+				}
+			}
+		}
+		return best;
+	}
+
+	/** True when the quest's own unmet requirements are none, or exactly one that a skill/quest/item provider covers. */
+	private boolean needsAtMostOneProvider(QuestModel q, String providedSkill)
+	{
+		Requirement r = q.getRequirement();
+		Requirement.Builder rest = Requirement.builder().questPoints(r.getQuestPoints()).combatLevel(r.getCombatLevel())
+			.minMaxHit(r.getMinMaxHit());
+		r.getChunks().forEach(rest::chunk);
+		r.getUnknown().forEach(rest::unknown);
+		if (!rest.build().missing(state).isEmpty())
+		{
+			return false;
+		}
+		int unmet = 0;
+		for (Map.Entry<String, Integer> e : r.getSkills().entrySet())
+		{
+			if (state.getLevel(e.getKey()) < e.getValue())
+			{
+				unmet++;
+				if (e.getKey().equalsIgnoreCase(providedSkill) || !factory.trainingNode(e.getKey(), e.getValue()).isPresent())
+				{
+					return false;
+				}
+			}
+		}
+		for (String pre : r.getQuests())
+		{
+			if (!state.hasQuest(pre))
+			{
+				unmet++;
+				if (!req.getQuests().get(pre).isPresent())
+				{
+					return false;
+				}
+			}
+		}
+		for (ItemNeed need : r.getItems())
+		{
+			if (!Requirement.builder().item(need).build().missing(state).isEmpty())
+			{
+				unmet++;
+				boolean buyable = false;
+				for (int id : need.getAnyOf())
+				{
+					buyable |= factory.acquireItem(id, 1).isPresent();
+				}
+				if (!buyable)
+				{
+					return false;
+				}
+			}
+		}
+		return unmet <= 1;
 	}
 
 	private String provideItem(Work w, Pending p, Requirement atom, ItemNeed need)
@@ -584,6 +788,18 @@ public final class Selector
 		final LinkedHashMap<String, LinkedHashSet<String>> preds = new LinkedHashMap<>();
 		final LinkedHashSet<String> goals = new LinkedHashSet<>();
 		boolean upgraded;
+
+		boolean hasQuest(String questId)
+		{
+			for (PlanNode n : nodes.values())
+			{
+				if (questId.equals(n.getQuestId()))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
 
 		Work copy()
 		{

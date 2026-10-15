@@ -67,6 +67,18 @@ public final class ChunkNodes
 
 	private static List<Integer> copy(List<Integer> in)
 	{
-		return in == null ? Collections.<Integer>emptyList() : new ArrayList<>(in);
+		if (in == null)
+		{
+			return Collections.<Integer>emptyList();
+		}
+		List<Integer> out = new ArrayList<>(in.size());
+		for (Integer i : in)
+		{
+			if (i != null)
+			{
+				out.add(i);
+			}
+		}
+		return out;
 	}
 }

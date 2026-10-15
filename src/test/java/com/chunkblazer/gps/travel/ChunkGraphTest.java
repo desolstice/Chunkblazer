@@ -28,8 +28,13 @@ package com.chunkblazer.gps.travel;
 import com.chunkblazer.gps.data.Tile;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -135,5 +140,143 @@ class ChunkGraphTest
 	{
 		ChunkGraph.View v = graph().accessible(new HashSet<>(Arrays.asList(12850)));
 		assertEquals(TravelConfig.INF, v.walkTicks(at(12850), new Tile(null, null, 0, false, null)));
+	}
+
+	/** A(50,50) - M(51,50) - Z(52,50) short; A - P - Q - R - Z long. */
+	private ChunkGraph competing()
+	{
+		return ChunkGraph.build(Arrays.asList(
+			node(Arrays.asList(12850), Arrays.asList(13106, 12851)),
+			node(Arrays.asList(13106), Arrays.asList(13362)),
+			node(Arrays.asList(12851), Arrays.asList(13108)),
+			node(Arrays.asList(13108), Arrays.asList(13363)),
+			node(Arrays.asList(13363), Arrays.asList(13362)),
+			node(Arrays.asList(13362), Collections.emptyList())));
+	}
+
+	@Test
+	void nullRegionAndNeighbourIdsAreSkipped()
+	{
+		ChunkGraph g = ChunkGraph.build(Arrays.asList(
+			node(Arrays.asList(12850, null), Arrays.asList(null, 12851)),
+			node(Arrays.asList(12851), null),
+			null));
+		ChunkGraph.View v = g.accessible(new HashSet<>(Arrays.asList(12850, 12851)));
+		assertEquals(40, v.walkTicks(at(12850), at(12851)));
+	}
+
+	@Test
+	void chunkNodesFiltersNullIds()
+	{
+		com.chunkblazer.NuzlockeChunk c = new com.chunkblazer.NuzlockeChunk();
+		c.setRegionIds(Arrays.asList(1, null, 2));
+		c.setNeighborIds(Arrays.asList(null, 3));
+		ChunkNode n = ChunkNodes.from(Collections.singletonList(c)).get(0);
+		assertEquals(Arrays.asList(1, 2), n.getRegionIds());
+		assertEquals(Arrays.asList(3), n.getNeighborRegionIds());
+	}
+
+	@Test
+	void accessibleNullIsEmpty()
+	{
+		ChunkGraph.View v = graph().accessible(null);
+		assertFalse(v.isAccessible(12850));
+		assertEquals(TravelConfig.INF, v.walkTicks(at(12850), at(12850)));
+	}
+
+	@Test
+	void shortcutOnlyExistsWhenRegionUnlocked()
+	{
+		Set<Integer> without = new HashSet<>(Arrays.asList(12850, 12851, 13108, 13363, 13362));
+		assertEquals(160, competing().accessible(without).walkTicks(at(12850), at(13362)));
+		Set<Integer> with = new HashSet<>(without);
+		with.add(13106);
+		assertEquals(80, competing().accessible(with).walkTicks(at(12850), at(13362)));
+	}
+
+	@Test
+	void crossRegionWalkWithNonCentreLegsRoundsUpOnce()
+	{
+		ChunkGraph.View v = graph().accessible(new HashSet<>(Arrays.asList(12850, 12851)));
+		Tile c1 = at(12850);
+		Tile c2 = at(12851);
+		Tile a = new Tile(c1.getX() + 7, c1.getY() + 2, 0, false, null);
+		Tile b = new Tile(c2.getX() - 3, c2.getY() + 5, 0, false, null);
+		// legs 7 + 64 + 5 = 76 tiles * 0.625 = 47.5 -> 48
+		assertEquals(48, v.walkTicks(a, b));
+	}
+
+	@Test
+	void accessibleCopiesItsInput()
+	{
+		Set<Integer> in = new HashSet<>(Arrays.asList(12850));
+		ChunkGraph.View v = graph().accessible(in);
+		in.add(12851);
+		in.remove(12850);
+		assertTrue(v.isAccessible(12850));
+		assertFalse(v.isAccessible(12851));
+	}
+
+	@Test
+	void asymmetricNeighbourDeclarationWalksBothWays()
+	{
+		ChunkGraph g = ChunkGraph.build(Arrays.asList(
+			node(Arrays.asList(12850), Arrays.asList(12851)),
+			node(Arrays.asList(12851), Collections.emptyList())));
+		ChunkGraph.View v = g.accessible(new HashSet<>(Arrays.asList(12850, 12851)));
+		assertEquals(40, v.walkTicks(at(12850), at(12851)));
+		assertEquals(40, v.walkTicks(at(12851), at(12850)));
+	}
+
+	@Test
+	void concurrentWalkTicksMatchSingleThreaded() throws Exception
+	{
+		Set<Integer> acc = new HashSet<>(Arrays.asList(12850, 12851, 13108, 13363, 13362, 13106));
+		List<Integer> ids = new ArrayList<>(acc);
+		ChunkGraph g = competing();
+		ChunkGraph.View ref = g.accessible(acc);
+		int n = ids.size();
+		int[][] expected = new int[n][n];
+		for (int i = 0; i < n; i++)
+		{
+			for (int j = 0; j < n; j++)
+			{
+				expected[i][j] = ref.walkTicks(at(ids.get(i)), at(ids.get(j)));
+			}
+		}
+		ChunkGraph.View shared = g.accessible(acc);
+		ExecutorService ex = Executors.newFixedThreadPool(8);
+		try
+		{
+			List<Future<Boolean>> fs = new ArrayList<>();
+			for (int t = 0; t < 8; t++)
+			{
+				fs.add(ex.submit(() ->
+				{
+					for (int rep = 0; rep < 200; rep++)
+					{
+						for (int i = 0; i < n; i++)
+						{
+							for (int j = 0; j < n; j++)
+							{
+								if (shared.walkTicks(at(ids.get(i)), at(ids.get(j))) != expected[i][j])
+								{
+									return false;
+								}
+							}
+						}
+					}
+					return true;
+				}));
+			}
+			for (Future<Boolean> f : fs)
+			{
+				assertTrue(f.get());
+			}
+		}
+		finally
+		{
+			ex.shutdownNow();
+		}
 	}
 }

@@ -26,7 +26,7 @@
 package com.chunkblazer.gps.travel;
 
 import com.chunkblazer.gps.data.Tile;
-import java.util.Collections;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -52,8 +52,12 @@ public final class ChunkGraph
 		{
 			for (ChunkNode n : nodes)
 			{
-				List<Integer> regions = n.getRegionIds() == null ? Collections.<Integer>emptyList() : n.getRegionIds();
-				List<Integer> neighbors = n.getNeighborRegionIds() == null ? Collections.<Integer>emptyList() : n.getNeighborRegionIds();
+				if (n == null)
+				{
+					continue;
+				}
+				List<Integer> regions = nonNull(n.getRegionIds());
+				List<Integer> neighbors = nonNull(n.getNeighborRegionIds());
 				for (Integer r : regions)
 				{
 					adj.computeIfAbsent(r, k -> new HashSet<>());
@@ -82,9 +86,25 @@ public final class ChunkGraph
 		return new ChunkGraph(adj);
 	}
 
+	private static List<Integer> nonNull(List<Integer> in)
+	{
+		List<Integer> out = new ArrayList<>();
+		if (in != null)
+		{
+			for (Integer i : in)
+			{
+				if (i != null)
+				{
+					out.add(i);
+				}
+			}
+		}
+		return out;
+	}
+
 	public View accessible(Set<Integer> regions)
 	{
-		return new View(new HashSet<>(regions));
+		return new View(regions == null ? new HashSet<>() : new HashSet<>(regions));
 	}
 
 	public final class View
@@ -121,7 +141,17 @@ public final class ChunkGraph
 				tiles = TileMath.tileDistance(a, b);
 				return (int) Math.ceil(tiles * TravelConfig.WALK_TICKS_PER_TILE);
 			}
-			Integer path = fromSource.computeIfAbsent(ra, this::dijkstra).get(rb);
+			Map<Integer, Integer> dist = fromSource.get(ra);
+				if (dist == null)
+				{
+					Map<Integer, Integer> computed = dijkstra(ra);
+					dist = fromSource.putIfAbsent(ra, computed);
+					if (dist == null)
+					{
+						dist = computed;
+					}
+				}
+				Integer path = dist.get(rb);
 			if (path == null)
 			{
 				return TravelConfig.INF;

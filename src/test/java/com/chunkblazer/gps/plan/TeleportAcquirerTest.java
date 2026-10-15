@@ -184,6 +184,26 @@ class TeleportAcquirerTest
 	}
 
 	@Test
+	void shopReachableOnlyThroughTheUnboughtTeleportIsNotAcquired()
+	{
+		// The shop sits next to the teleport's destination, so the only cheap way to the shop is the teleport itself.
+		// Buying there needs the teleport first: the plan must not claim that impossible saving.
+		PlanWorld w = PlanWorld.builder()
+			.unlockedRange(0, 10100, 3200)
+			.spellTeleport("tele", 554, 9990)
+			.shop("Rune shop", 554, 9980)
+			.task("far1", "COOKING", 1, 1, 10000, 3200)
+			.task("far2", "COOKING", 1, 1, 10010, 3200)
+			.start(0, 3200)
+			.allowAcquisition(true)
+			.build();
+		Plan with = new Planner(w.request()).plan();
+		Plan without = new Planner(w.requestWithAcquisition(false)).plan();
+		assertEquals(-1, indexOfType(with, NodeType.ACQUIRE_TELEPORT));
+		assertEquals(without.getTotalTravelTicks(), with.getTotalTravelTicks());
+	}
+
+	@Test
 	void constantsMatchTheDesign()
 	{
 		assertEquals(100, TeleportAcquirer.MIN_NET_SAVING_TICKS);

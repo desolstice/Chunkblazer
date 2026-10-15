@@ -26,10 +26,13 @@
 package com.chunkblazer.gps.model;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RequirementTest
@@ -161,5 +164,25 @@ class RequirementTest
 		assertEquals(50, m.getCombatLevel());
 		assertEquals(10, m.getMinMaxHit());
 		assertTrue(m.isUnknown());
+	}
+
+	@Test
+	void itemNeedCopiesSourceSet()
+	{
+		Set<Integer> src = new HashSet<>(Arrays.asList(1));
+		ItemNeed need = new ItemNeed(src, 1, "X");
+		src.add(2);
+		assertEquals(Collections.singleton(1), need.getAnyOf());
+		assertThrows(UnsupportedOperationException.class, () -> need.getAnyOf().add(3));
+		Requirement r = Requirement.builder().item(need).build();
+		assertThrows(UnsupportedOperationException.class, () -> r.getItems().get(0).getAnyOf().add(3));
+	}
+
+	@Test
+	void nullsFailFast()
+	{
+		assertThrows(NullPointerException.class, () -> new ItemNeed(null, 1, "X"));
+		assertThrows(NullPointerException.class, () -> Requirement.builder().item(null));
+		assertThrows(NullPointerException.class, () -> Requirement.NONE.merge(null));
 	}
 }

@@ -32,6 +32,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -177,6 +178,7 @@ public final class Requirement
 
 	public Requirement merge(Requirement other)
 	{
+		Objects.requireNonNull(other, "other");
 		Builder b = new Builder();
 		b.skills.putAll(skills);
 		other.skills.forEach((k, v) -> b.skills.merge(k, v, Math::max));
@@ -259,7 +261,7 @@ public final class Requirement
 
 		public Builder item(ItemNeed need)
 		{
-			items.add(need);
+			items.add(Objects.requireNonNull(need, "need"));
 			return this;
 		}
 

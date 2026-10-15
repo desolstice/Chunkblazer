@@ -25,6 +25,9 @@
  */
 package com.chunkblazer.gps.model;
 
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.Objects;
 import java.util.Set;
 import lombok.Value;
 
@@ -37,4 +40,11 @@ public class ItemNeed
 	Set<Integer> anyOf;
 	int qty;
 	String name;
+
+	public ItemNeed(Set<Integer> anyOf, int qty, String name)
+	{
+		this.anyOf = Collections.unmodifiableSet(new LinkedHashSet<>(Objects.requireNonNull(anyOf, "anyOf")));
+		this.qty = qty;
+		this.name = name;
+	}
 }

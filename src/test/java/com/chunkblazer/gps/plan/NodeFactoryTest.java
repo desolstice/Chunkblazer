@@ -209,4 +209,26 @@ class NodeFactoryTest
 		assertTrue(n.getLabel().contains("Cheap Shop"));
 		assertEquals(3253, (int) n.getLocation().getTile().getX());
 	}
+
+	@Test
+	void questChunksBecomeChunkRequirementsOnTheFirstStep()
+	{
+		GpsData d = GpsDataStore.load(GpsTestFixtures.dir("full"));
+		NodeFactory f = factory(d, Collections.singletonMap("TEST_QUEST", new QuestHelperEntry(Arrays.asList(12850), null, null)));
+		List<PlanNode> chain = f.questChain("TEST_QUEST", 1);
+		assertTrue(chain.get(0).getRequirement().getChunks().contains(12850), chain.get(0).getRequirement().toString());
+		assertEquals(10, (int) chain.get(0).getRequirement().getSkills().get("COOKING")); // merged, not replaced
+		assertTrue(chain.get(1).getRequirement().getChunks().isEmpty());
+	}
+
+	@Test
+	void mixedCaseRewardSkillIsNormalisedToUpperCase()
+	{
+		PlanWorld w = PlanWorld.builder().quest("Q", 500, "Cooking", PlanWorld.step("s", 3200, 3200)).build();
+		PlanRequest r = w.request();
+		NodeFactory f = new NodeFactory(r.getData(), r.getQuests(), r.getDeriver(), new LocationResolver(r.getData(), r.getQuests()));
+		PlanNode last = f.questChain("Q", 0).get(0);
+		assertEquals(500L, (long) last.getEffects().getXp().get("COOKING"));
+		assertNull(last.getEffects().getXp().get("Cooking"));
+	}
 }

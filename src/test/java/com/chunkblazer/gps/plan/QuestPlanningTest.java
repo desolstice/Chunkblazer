@@ -188,6 +188,19 @@ class QuestPlanningTest
 		assertReplayHolds(w, p);
 	}
 
+	@Test
+	void questCheckTaskWithAllStepsDoneIsTreatedAsCompleted()
+	{
+		PlanWorld w = PlanWorld.builder().unlocked(R50)
+			.quest("Q", step("one", 3205, 3205), step("two", 3206, 3206))
+			.questTask("Q", 5, R50)
+			.start(3200, 3200).build();
+		java.util.Set<String> done = new java.util.HashSet<>(Arrays.asList("quest:Q:0", "quest:Q:1"));
+		Plan p = new Planner(w.request(r -> r.doneNodeIds(done))).plan();
+		assertTrue(p.getSteps().isEmpty(), labelsOf(p).toString());
+		assertTrue(p.getUnplannable().isEmpty(), p.getUnplannable().toString());
+	}
+
 	private static void assertReplayHolds(PlanWorld w, Plan p)
 	{
 		PlayerState s = w.request().getState();

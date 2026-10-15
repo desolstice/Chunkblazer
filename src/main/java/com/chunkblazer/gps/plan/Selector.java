@@ -219,6 +219,10 @@ public final class Selector
 				continue;
 			}
 			NuzlockeTask t = ref.getTask();
+			if (isQuestCheckAlreadyDone(t))
+			{
+				continue;
+			}
 			String label = t.getName() == null ? t.getTaskId() : t.getName();
 			if (!state.hasUnlockedChunk(ref.getHomeRegionId()))
 			{
@@ -239,6 +243,14 @@ public final class Selector
 		}
 		ready.sort(Comparator.<Candidate>comparingDouble(c -> -c.score).thenComparing(c -> c.key));
 		return ready;
+	}
+
+	/** A quest-check task whose quest steps are all done (state not yet updated) counts as completed. */
+	private boolean isQuestCheckAlreadyDone(NuzlockeTask t)
+	{
+		TaskConstraints c = t.getConstraints();
+		return "QUEST_CHECK".equals(t.getCompletionType()) && c != null && c.getQuest() != null
+			&& !state.hasQuest(c.getQuest()) && factory.questFullyDone(c.getQuest());
 	}
 
 	private List<PlanNode> nodesFor(TaskRef ref)

@@ -130,6 +130,7 @@ public final class NodeFactory
 		List<QuestStep> steps = q.getSteps() == null ? Collections.emptyList() : q.getSteps();
 		String name = q.getName() == null ? questId : q.getName();
 		Effects reward = rewardEffects(q, completionTaskPoints);
+		Requirement first = withChunks(q.getRequirement(), q.getChunks());
 		List<PlanNode> out = new ArrayList<>();
 		if (steps.isEmpty())
 		{
@@ -138,7 +139,7 @@ public final class NodeFactory
 				.type(NodeType.QUEST_STEP)
 				.label("Quest: " + name)
 				.location(locations.forQuestStep(questId, 0))
-				.requirement(q.getRequirement())
+				.requirement(first)
 				.effects(reward)
 				.points(completionTaskPoints)
 				.questId(questId)
@@ -171,7 +172,7 @@ public final class NodeFactory
 				.type(NodeType.QUEST_STEP)
 				.label(name + ": " + text)
 				.location(loc)
-				.requirement(i == 0 ? q.getRequirement() : Requirement.NONE)
+				.requirement(i == 0 ? first : Requirement.NONE)
 				.effects(last ? reward : Effects.NONE)
 				.after(i == 0 ? Collections.emptyList() : Collections.singletonList(stepId(questId, i - 1)))
 				.points(last ? completionTaskPoints : 0)
@@ -180,6 +181,46 @@ public final class NodeFactory
 				.build());
 		}
 		return out;
+	}
+
+	/** The quest requirement plus a chunk requirement for each of the quest's chunks (merged, never replaced). */
+	private static Requirement withChunks(Requirement base, List<Integer> chunks)
+	{
+		if (chunks == null || chunks.isEmpty())
+		{
+			return base;
+		}
+		Requirement.Builder b = Requirement.builder();
+		for (Integer c : chunks)
+		{
+			if (c != null)
+			{
+				b.chunk(c);
+			}
+		}
+		return base == null ? b.build() : base.merge(b.build());
+	}
+
+	/** True when the quest exists, has steps, and every one of its step nodes is already in the done set. */
+	public boolean questFullyDone(String questId)
+	{
+		if (doneNodeIds.isEmpty())
+		{
+			return false;
+		}
+		List<PlanNode> full = fullQuestChain(questId, 0);
+		if (full.isEmpty())
+		{
+			return false;
+		}
+		for (PlanNode n : full)
+		{
+			if (!doneNodeIds.contains(n.getId()))
+			{
+				return false;
+			}
+		}
+		return true;
 	}
 
 	private static String stepId(String questId, int index)
@@ -191,7 +232,7 @@ public final class NodeFactory
 	{
 		QuestDef.Rewards r = q.getRewards() == null ? new QuestDef.Rewards(null, null, 0, null) : q.getRewards();
 		Effects.Builder b = Effects.builder();
-		r.getXp().forEach((skill, amount) -> b.xp(skill, amount));
+		r.getXp().forEach((skill, amount) -> b.xp(skill == null ? null : skill.toUpperCase(Locale.ROOT), amount));
 		b.questComplete(q.getId(), r.getQuestPoints());
 		for (QuestDef.Unlock u : r.getUnlocks())
 		{

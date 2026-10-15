@@ -78,6 +78,7 @@ public final class Planner
 
 	public Plan plan()
 	{
+		final long deadlineNanos = System.nanoTime() + Math.min(Math.max(0L, req.getDeadlineMillis()), 3_600_000L) * 1_000_000L;
 		NodeFactory factory = new NodeFactory(req.getData(), req.getQuests(), req.getDeriver(),
 			new LocationResolver(req.getData(), req.getQuests()), req.getDoneNodeIds());
 		PrecedenceGraph graph = new Selector(req, factory).select();
@@ -108,11 +109,16 @@ public final class Planner
 		int n = nodes.size();
 		Map<String, List<String>> predMap = new LinkedHashMap<>(graph.getPreds());
 		final CostMatrix base = matrix;
-		int[] order = Solver.solve(n, base::cost, intPreds(nodes, predMap), req.getSeed(), req.getDeadlineMillis());
+		// One overall budget: with acquisition the first solve gets 60% so the acquirer keeps the rest.
+		long budgetMs = Math.max(0L, req.getDeadlineMillis());
+		long remainingMs = Math.max(0L, (deadlineNanos - System.nanoTime()) / 1_000_000L);
+		long firstSolveMs = req.isAllowTeleportAcquisition() ? remainingMs * 6 / 10 : budgetMs;
+		int[] order = Solver.solve(n, base::cost, intPreds(nodes, predMap), req.getSeed(), firstSolveMs);
 
 		if (req.isAllowTeleportAcquisition())
 		{
-			TeleportAcquirer.AcquireResult r = new TeleportAcquirer(req, factory).apply(nodes, tiles, predMap, order);
+			TeleportAcquirer.AcquireResult r = new TeleportAcquirer(req, factory).apply(nodes, tiles, predMap, order,
+				deadlineNanos);
 			nodes = r.getNodes();
 			tiles = r.getTiles();
 			predMap = r.getPreds();

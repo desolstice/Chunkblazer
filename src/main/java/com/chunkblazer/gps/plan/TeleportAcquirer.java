@@ -51,6 +51,8 @@ public final class TeleportAcquirer
 	public static final int MIN_NET_SAVING_TICKS = 100;
 	public static final int MAX_ACQUISITIONS = 5;
 	public static final int MAX_QTY = 25;
+	/** At most this many edges are evaluated per plan (each costs a cost-matrix build). */
+	public static final int MAX_CANDIDATES = 12;
 
 	private final PlanRequest req;
 
@@ -79,6 +81,13 @@ public final class TeleportAcquirer
 	 */
 	public AcquireResult apply(List<PlanNode> nodes, Map<String, Tile> tiles, Map<String, List<String>> preds, int[] order)
 	{
+		return apply(nodes, tiles, preds, order, System.nanoTime() + Math.max(0L, req.getDeadlineMillis()) * 1_000_000L);
+	}
+
+	/** As above, but all work (matrix builds and re-solves) stops at {@code deadlineNanos} ({@link System#nanoTime} scale). */
+	public AcquireResult apply(List<PlanNode> nodes, Map<String, Tile> tiles, Map<String, List<String>> preds, int[] order,
+		long deadlineNanos)
+	{
 		List<PlanNode> curNodes = new ArrayList<>(nodes);
 		Map<String, Tile> curTiles = new LinkedHashMap<>(tiles);
 		Map<String, List<String>> curPreds = new LinkedHashMap<>(preds);
@@ -97,10 +106,11 @@ public final class TeleportAcquirer
 				candidates.add(u);
 			}
 		}
+		candidates = relevant(candidates, curNodes, curTiles, curOrder);
 		int accepted = 0;
 		for (UsableEdge u : candidates)
 		{
-			if (accepted >= MAX_ACQUISITIONS)
+			if (accepted >= MAX_ACQUISITIONS || System.nanoTime() - deadlineNanos >= 0)
 			{
 				break;
 			}
@@ -201,7 +211,8 @@ public final class TeleportAcquirer
 				continue; // even the plain insertion would route a leg through an edge not yet bought
 			}
 			int[][] ip = Planner.intPreds(newNodes, newPreds);
-			int[] resolved = Solver.solve(n + 1, m1::cost, ip, req.getSeed(), req.getDeadlineMillis());
+			int[] resolved = Solver.solve(n + 1, m1::cost, ip, req.getSeed(),
+				Math.max(0L, (deadlineNanos - System.nanoTime()) / 1_000_000L));
 			int[] chosen = inserted;
 			if (Solver.valid(resolved, ip) && Solver.pathCost(resolved, m1::cost) < Solver.pathCost(inserted, m1::cost)
 				&& !usesEdgeBeforeAcquire(resolved, m1, newNodes, withEdge))
@@ -217,6 +228,57 @@ public final class TeleportAcquirer
 			accepted++;
 		}
 		return new AcquireResult(curNodes, curTiles, curPreds, curOrder, base, acquired);
+	}
+
+	/**
+	 * Candidates that some leg of the current route would use if every candidate were owned, most-used first, capped at
+	 * {@link #MAX_CANDIDATES}. Multi-item edges and shops of unknown location are dropped here too.
+	 */
+	private List<UsableEdge> relevant(List<UsableEdge> candidates, List<PlanNode> curNodes, Map<String, Tile> curTiles,
+		int[] curOrder)
+	{
+		List<UsableEdge> usable = new ArrayList<>();
+		Set<String> all = new LinkedHashSet<>();
+		for (UsableEdge u : candidates)
+		{
+			if (u.getAcquisitions().size() == 1 && u.getAcquisition().getShopTile() != null
+				&& u.getAcquisition().getShopTile().isKnown())
+			{
+				usable.add(u);
+				all.add(u.getEdge().getId());
+			}
+		}
+		if (usable.isEmpty())
+		{
+			return usable;
+		}
+		CostMatrix m = Planner.buildMatrix(req, curNodes, curTiles, all, null);
+		Map<String, Integer> legs = new LinkedHashMap<>();
+		int prev = 0;
+		for (int idx : curOrder)
+		{
+			for (String e : m.route(prev, idx))
+			{
+				if (all.contains(e))
+				{
+					legs.merge(e, 1, Integer::sum);
+				}
+			}
+			prev = idx;
+		}
+		List<UsableEdge> out = new ArrayList<>();
+		for (UsableEdge u : usable)
+		{
+			if (legs.containsKey(u.getEdge().getId()))
+			{
+				out.add(u);
+			}
+		}
+		out.sort((x, y) -> {
+			int c = Integer.compare(legs.get(y.getEdge().getId()), legs.get(x.getEdge().getId()));
+			return c != 0 ? c : x.getEdge().getId().compareTo(y.getEdge().getId());
+		});
+		return out.size() > MAX_CANDIDATES ? new ArrayList<>(out.subList(0, MAX_CANDIDATES)) : out;
 	}
 
 	static final String ACQUIRE_PREFIX = "acquire-teleport:";

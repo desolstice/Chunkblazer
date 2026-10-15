@@ -41,4 +41,16 @@ class PlannerPerfTest
 		assertTrue(p.getSteps().size() >= 400, "steps " + p.getSteps().size());
 		assertTrue(ms < 2000, "plan took " + ms + " ms");
 	}
+
+	@Test
+	void planWithTeleportAcquisitionRespectsTheOverallDeadline()
+	{
+		PlanWorld w = PlanWorld.random(7, 500, 25).maxNodes(500);
+		long deadline = 1000;
+		long t0 = System.nanoTime();
+		Plan p = new Planner(w.request(r -> r.deadlineMillis(deadline))).plan();
+		long ms = (System.nanoTime() - t0) / 1_000_000;
+		assertTrue(p.getSteps().size() >= 400, "steps " + p.getSteps().size());
+		assertTrue(ms < deadline + 400, "plan took " + ms + " ms");
+	}
 }

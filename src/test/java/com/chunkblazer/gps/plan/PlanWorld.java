@@ -128,6 +128,12 @@ final class PlanWorld
 	 */
 	static PlanWorld random(long seed, int taskCount)
 	{
+		return random(seed, taskCount, 0);
+	}
+
+	/** As {@link #random(long, int)} plus {@code acquirable} item-gated teleports each sold by a shop, with acquisition allowed. */
+	static PlanWorld random(long seed, int taskCount, int acquirable)
+	{
 		Random rnd = new Random(seed);
 		int base = 3000;
 		int size = 20 * 64;
@@ -158,6 +164,12 @@ final class PlanWorld
 		{
 			b.freeTeleport("tp" + e, base + rnd.nextInt(size), base + rnd.nextInt(size));
 		}
+		for (int e = 0; e < acquirable; e++)
+		{
+			b.itemTeleport("atp" + e, 600 + e, base + rnd.nextInt(size), base + rnd.nextInt(size));
+			b.shop("Shop" + e, 600 + e, base + rnd.nextInt(size));
+		}
+		b.allowAcquisition(acquirable > 0);
 		return b.build();
 	}
 
@@ -230,6 +242,15 @@ final class PlanWorld
 		{
 			edges.add("{\"id\":\"" + id + "\",\"kind\":\"SPELL\",\"name\":\"" + id + "\",\"from\":null,\"to\":{\"x\":" + toX
 				+ ",\"y\":3200,\"plane\":0},\"ticks\":5,\"requires\":{\"skills\":{},\"quests\":[],\"items\":[{\"ids\":[" + itemId
+				+ "],\"qty\":1}]},\"consumesItem\":true}");
+			return this;
+		}
+
+		/** A SPELL teleport usable from anywhere to (toX, toY) that needs one of item {@code itemId}. */
+		Builder itemTeleport(String id, int itemId, int toX, int toY)
+		{
+			edges.add("{\"id\":\"" + id + "\",\"kind\":\"SPELL\",\"name\":\"" + id + "\",\"from\":null,\"to\":{\"x\":" + toX
+				+ ",\"y\":" + toY + ",\"plane\":0},\"ticks\":5,\"requires\":{\"skills\":{},\"quests\":[],\"items\":[{\"ids\":[" + itemId
 				+ "],\"qty\":1}]},\"consumesItem\":true}");
 			return this;
 		}

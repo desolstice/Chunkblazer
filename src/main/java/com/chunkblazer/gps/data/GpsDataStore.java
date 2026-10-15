@@ -27,7 +27,6 @@ package com.chunkblazer.gps.data;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
-import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
 import java.io.File;
@@ -63,7 +62,7 @@ public final class GpsDataStore
 		List<String> invalid = new ArrayList<>();
 		if (dir == null || !Files.isDirectory(dir))
 		{
-			return GpsData.empty(new GpsDataStatus(dir, false, new ArrayList<>(Arrays.asList(FILES)), invalid));
+			return GpsData.empty(new GpsDataStatus(dir, false, new ArrayList<>(Arrays.asList(FILES)), invalid, null));
 		}
 		List<MonsterDef> monsters = read(dir, "monsters.json", "monsters",
 			new TypeToken<List<MonsterDef>>()
@@ -89,8 +88,9 @@ public final class GpsDataStore
 			new TypeToken<List<TrainingMethod>>()
 			{
 			}, missing, invalid);
-		return new GpsData(monsters, items, quests, transport, locations, training, readVersion(dir),
-			new GpsDataStatus(dir, true, missing, invalid));
+		String version = readVersion(dir);
+		return new GpsData(monsters, items, quests, transport, locations, training, version,
+			new GpsDataStatus(dir, true, missing, invalid, version));
 	}
 
 	private static <T> List<T> read(Path dir, String file, String key, TypeToken<List<T>> type,
@@ -113,7 +113,7 @@ public final class GpsDataStore
 			List<T> out = GSON.fromJson(root.getAsJsonObject().get(key), type.getType());
 			return out == null ? new ArrayList<>() : out;
 		}
-		catch (IOException | JsonParseException | ClassCastException | IllegalStateException e)
+		catch (RuntimeException | IOException | StackOverflowError e)
 		{
 			invalid.add(file);
 			return new ArrayList<>();
@@ -137,7 +137,7 @@ public final class GpsDataStore
 			}
 			return root.getAsJsonObject().get("data_version").getAsString();
 		}
-		catch (IOException | JsonParseException | ClassCastException | IllegalStateException e)
+		catch (RuntimeException | IOException | StackOverflowError e)
 		{
 			return null;
 		}

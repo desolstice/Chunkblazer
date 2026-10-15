@@ -28,6 +28,7 @@ package com.chunkblazer.gps.data;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
@@ -70,9 +71,8 @@ class GpsDataStoreTest
 	}
 
 	@Test
-	void absentCollectionsNeverNull() throws Exception
+	void absentCollectionsNeverNull(@TempDir Path tmp) throws Exception
 	{
-		Path tmp = Files.createTempDirectory("gps");
 		Files.write(tmp.resolve("quests.json"), "{\"quests\":[{\"id\":\"A\"}]}".getBytes("UTF-8"));
 		GpsData d = GpsDataStore.load(tmp);
 		QuestDef q = d.getQuests().get(0);
@@ -118,5 +118,100 @@ class GpsDataStoreTest
 		GpsData d = GpsDataStore.load(tmp);
 		assertTrue(d.getQuests().isEmpty());
 		assertTrue(d.getStatus().getInvalidFiles().contains("quests.json"));
+	}
+
+	private static GpsData loadWith(Path tmp, String file, String json) throws Exception
+	{
+		Files.write(tmp.resolve(file), json.getBytes("UTF-8"));
+		return GpsDataStore.load(tmp);
+	}
+
+	@Test
+	void wrongShapeIsInvalidNotCrash(@TempDir Path tmp) throws Exception
+	{
+		Files.write(tmp.resolve("quests.json"), "{}".getBytes("UTF-8"));
+		Files.write(tmp.resolve("items.json"), "[]".getBytes("UTF-8"));
+		Files.write(tmp.resolve("monsters.json"), "{\"other\":[]}".getBytes("UTF-8"));
+		Files.write(tmp.resolve("transport.json"), "{\"edges\":5}".getBytes("UTF-8"));
+		GpsData d = GpsDataStore.load(tmp);
+		assertTrue(d.getStatus().getInvalidFiles().containsAll(
+			java.util.Arrays.asList("quests.json", "items.json", "monsters.json", "transport.json")));
+		assertTrue(d.getQuests().isEmpty());
+		assertTrue(d.getTransport().isEmpty());
+	}
+
+	@Test
+	void nullElementsAreFiltered(@TempDir Path tmp) throws Exception
+	{
+		GpsData d = loadWith(tmp, "quests.json",
+			"{\"quests\":[null,{\"id\":\"A\",\"steps\":[null,{\"index\":1,\"items\":[null]}],"
+				+ "\"requirements\":{\"quests\":[null,\"B\"],\"items\":[null],\"skills\":{\"COOKING\":null}},"
+				+ "\"rewards\":{\"unlocks\":[null],\"choiceXp\":[null],\"xp\":{\"A\":null}}}]}");
+		assertEquals(1, d.getQuests().size());
+		QuestDef q = d.getQuests().get(0);
+		assertEquals(1, q.getSteps().size());
+		assertTrue(q.getSteps().get(0).getItems().isEmpty());
+		assertEquals(java.util.Collections.singletonList("B"), q.getRequirements().getQuests());
+		assertTrue(q.getRequirements().getItems().isEmpty());
+		assertTrue(q.getRequirements().getSkills().isEmpty());
+		assertTrue(q.getRewards().getUnlocks().isEmpty());
+		assertTrue(q.getRewards().getChoiceXp().isEmpty());
+		assertTrue(q.getRewards().getXp().isEmpty());
+	}
+
+	@Test
+	void exposedCollectionsAreUnmodifiable(@TempDir Path tmp) throws Exception
+	{
+		GpsData d = loadWith(tmp, "quests.json",
+			"{\"quests\":[{\"id\":\"A\",\"steps\":[{}],\"rewards\":{\"xp\":{\"A\":1}}}]}");
+		assertThrows(UnsupportedOperationException.class, () -> d.getQuests().add(null));
+		assertThrows(UnsupportedOperationException.class, () -> d.getQuests().get(0).getSteps().add(null));
+		assertThrows(UnsupportedOperationException.class, () -> d.getQuests().get(0).getRewards().getXp().put("x", 1));
+		assertThrows(UnsupportedOperationException.class, () -> d.getStatus().getMissingFiles().add("x"));
+		assertThrows(UnsupportedOperationException.class, () -> GpsData.empty(d.getStatus()).getMonsters().add(null));
+	}
+
+	@Test
+	void wrongTypeDataVersionIsIgnored(@TempDir Path tmp) throws Exception
+	{
+		assertNull(loadWith(tmp, "data_version.json", "{\"data_version\":{\"a\":1}}").getDataVersion());
+		assertNull(loadWith(tmp, "data_version.json", "{\"data_version\":[1,2]}").getDataVersion());
+		assertNull(loadWith(tmp, "data_version.json", "{\"data_version\":null}").getDataVersion());
+	}
+
+	@Test
+	void deeplyNestedJsonIsInvalidNotCrash(@TempDir Path tmp) throws Exception
+	{
+		StringBuilder sb = new StringBuilder("{\"quests\":");
+		for (int i = 0; i < 200000; i++)
+		{
+			sb.append('[');
+		}
+		GpsData d = loadWith(tmp, "quests.json", sb.toString());
+		assertTrue(d.getStatus().getInvalidFiles().contains("quests.json"));
+		Files.write(tmp.resolve("data_version.json"), sb.toString().getBytes("UTF-8"));
+		assertNull(GpsDataStore.load(tmp).getDataVersion());
+	}
+
+	@Test
+	void pathThatIsAFileIsDirectoryNotFound(@TempDir Path tmp) throws Exception
+	{
+		Path f = tmp.resolve("afile");
+		Files.write(f, new byte[] {1});
+		GpsData d = GpsDataStore.load(f);
+		assertFalse(d.getStatus().isDirectoryFound());
+		assertTrue(d.getMonsters().isEmpty());
+	}
+
+	@Test
+	void describeIncludesVersionAndPunctuation(@TempDir Path tmp) throws Exception
+	{
+		Files.copy(fixture("full/monsters.json"), tmp.resolve("monsters.json"));
+		Files.write(tmp.resolve("data_version.json"), "{\"data_version\":\"2026-10-14\"}".getBytes("UTF-8"));
+		Files.write(tmp.resolve("items.json"), "{".getBytes("UTF-8"));
+		String s = GpsDataStore.load(tmp).getStatus().describe();
+		assertTrue(s.contains("version 2026-10-14"), s);
+		assertTrue(s.startsWith("GPS data loaded (version 2026-10-14). Missing: ") && s.endsWith(". Invalid: items.json."), s);
+		assertEquals("GPS data loaded (version test-1).", GpsDataStore.load(fixture("full")).getStatus().describe());
 	}
 }

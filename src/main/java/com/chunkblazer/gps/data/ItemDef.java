@@ -25,7 +25,6 @@
  */
 package com.chunkblazer.gps.data;
 
-import java.util.Collections;
 import java.util.List;
 import lombok.Value;
 
@@ -47,7 +46,7 @@ public class ItemDef
 
 	public List<Source> getSources()
 	{
-		return sources == null ? Collections.emptyList() : sources;
+		return Safe.list(sources);
 	}
 
 	@Value

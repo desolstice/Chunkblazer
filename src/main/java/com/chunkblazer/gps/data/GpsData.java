@@ -25,11 +25,14 @@
  */
 package com.chunkblazer.gps.data;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import lombok.Value;
 
+/**
+ * Immutable snapshot of the loaded GPS data. Exposed collections are unmodifiable and null-free. The instance is
+ * safely shareable only if published through a {@code volatile} field or an {@code AtomicReference} (the backing
+ * Gson collections are not otherwise guaranteed visible across threads).
+ */
 @Value
 public class GpsData
 {
@@ -44,8 +47,7 @@ public class GpsData
 
 	public static GpsData empty(GpsDataStatus status)
 	{
-		return new GpsData(new ArrayList<>(), new ArrayList<>(), new ArrayList<>(), new ArrayList<>(),
-			new ArrayList<>(), new ArrayList<>(), null, status);
+		return new GpsData(null, null, null, null, null, null, null, status);
 	}
 
 	/** Test/support use: data holding only the given monsters (other lists empty, no version, null status). */
@@ -57,31 +59,31 @@ public class GpsData
 
 	public List<MonsterDef> getMonsters()
 	{
-		return monsters == null ? Collections.emptyList() : monsters;
+		return Safe.list(monsters);
 	}
 
 	public List<ItemDef> getItems()
 	{
-		return items == null ? Collections.emptyList() : items;
+		return Safe.list(items);
 	}
 
 	public List<QuestDef> getQuests()
 	{
-		return quests == null ? Collections.emptyList() : quests;
+		return Safe.list(quests);
 	}
 
 	public List<TransportEdge> getTransport()
 	{
-		return transport == null ? Collections.emptyList() : transport;
+		return Safe.list(transport);
 	}
 
 	public List<LocationEntry> getLocations()
 	{
-		return locations == null ? Collections.emptyList() : locations;
+		return Safe.list(locations);
 	}
 
 	public List<TrainingMethod> getTraining()
 	{
-		return training == null ? Collections.emptyList() : training;
+		return Safe.list(training);
 	}
 }

@@ -25,6 +25,7 @@
  */
 package com.chunkblazer.gps.data;
 
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -42,6 +43,19 @@ public final class GpsDataLocator
 			return GpsDataStore.defaultDir();
 		}
 		String c = configured.trim();
+		try
+		{
+			return parse(c);
+		}
+		catch (InvalidPathException | SecurityException e)
+		{
+			// free-text config field: never throw on bad input, fall back to the default
+			return GpsDataStore.defaultDir();
+		}
+	}
+
+	private static Path parse(String c)
+	{
 		if (c.equals("~") || c.startsWith("~/") || c.startsWith("~\\"))
 		{
 			return Paths.get(System.getProperty("user.home"), c.length() > 2 ? c.substring(2) : "");

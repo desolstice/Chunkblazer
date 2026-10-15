@@ -29,7 +29,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import java.nio.file.Paths;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class GpsDataLocatorTest
 {
@@ -52,5 +55,30 @@ class GpsDataLocatorTest
 	void loadOfMissingDirDoesNotThrow()
 	{
 		assertFalse(GpsDataLocator.load("Z:/definitely/not/here").getStatus().isDirectoryFound());
+	}
+
+	@Test
+	void invalidPathCharactersNeverThrow()
+	{
+		assertEquals(GpsDataStore.defaultDir(), GpsDataLocator.resolveDir("a\0b"));
+		assertEquals(GpsDataStore.defaultDir(), GpsDataLocator.load("a\0b").getStatus().getDir());
+		assertEquals(GpsDataStore.defaultDir(), GpsDataLocator.load("~/a\0b").getStatus().getDir());
+	}
+
+	@Test
+	void bareTildeResolvesToHome()
+	{
+		Path home = Paths.get(System.getProperty("user.home"));
+		assertEquals(home, GpsDataLocator.resolveDir("~"));
+		assertEquals(home, GpsDataLocator.resolveDir("~/"));
+		assertEquals(home, GpsDataLocator.resolveDir("~\\"));
+	}
+
+	@Test
+	void regularFileAsDirDoesNotThrow(@TempDir Path tmp) throws Exception
+	{
+		Path f = tmp.resolve("f");
+		Files.write(f, new byte[] {1});
+		assertFalse(GpsDataLocator.load(f.toString()).getStatus().isDirectoryFound());
 	}
 }

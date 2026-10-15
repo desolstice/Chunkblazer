@@ -25,7 +25,6 @@
  */
 package com.chunkblazer.gps.data;
 
-import java.util.Collections;
 import java.util.List;
 import lombok.Value;
 
@@ -43,6 +42,6 @@ public class TrainingMethod
 
 	public List<Requirements.ItemReq> getItems()
 	{
-		return items == null ? Collections.emptyList() : items;
+		return Safe.list(items);
 	}
 }

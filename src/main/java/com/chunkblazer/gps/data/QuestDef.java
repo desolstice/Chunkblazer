@@ -25,7 +25,6 @@
  */
 package com.chunkblazer.gps.data;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import lombok.Value;
@@ -51,7 +50,7 @@ public class QuestDef
 
 	public List<QuestStep> getSteps()
 	{
-		return steps == null ? Collections.emptyList() : steps;
+		return Safe.list(steps);
 	}
 
 	@Value
@@ -64,17 +63,17 @@ public class QuestDef
 
 		public Map<String, Integer> getXp()
 		{
-			return xp == null ? Collections.emptyMap() : xp;
+			return Safe.map(xp);
 		}
 
 		public List<ChoiceXp> getChoiceXp()
 		{
-			return choiceXp == null ? Collections.emptyList() : choiceXp;
+			return Safe.list(choiceXp);
 		}
 
 		public List<Unlock> getUnlocks()
 		{
-			return unlocks == null ? Collections.emptyList() : unlocks;
+			return Safe.list(unlocks);
 		}
 	}
 
@@ -87,7 +86,7 @@ public class QuestDef
 
 		public List<String> getSkills()
 		{
-			return skills == null ? Collections.emptyList() : skills;
+			return Safe.list(skills);
 		}
 	}
 

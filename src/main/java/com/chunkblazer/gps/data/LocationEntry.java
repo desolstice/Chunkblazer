@@ -25,7 +25,6 @@
  */
 package com.chunkblazer.gps.data;
 
-import java.util.Collections;
 import java.util.List;
 import lombok.Value;
 
@@ -41,6 +40,6 @@ public class LocationEntry
 
 	public List<Integer> getIds()
 	{
-		return ids == null ? Collections.emptyList() : ids;
+		return Safe.list(ids);
 	}
 }

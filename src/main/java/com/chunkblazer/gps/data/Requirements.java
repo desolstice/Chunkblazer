@@ -25,7 +25,6 @@
  */
 package com.chunkblazer.gps.data;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import lombok.Value;
@@ -41,17 +40,17 @@ public class Requirements
 
 	public Map<String, Integer> getSkills()
 	{
-		return skills == null ? Collections.emptyMap() : skills;
+		return Safe.map(skills);
 	}
 
 	public List<String> getQuests()
 	{
-		return quests == null ? Collections.emptyList() : quests;
+		return Safe.list(quests);
 	}
 
 	public List<ItemReq> getItems()
 	{
-		return items == null ? Collections.emptyList() : items;
+		return Safe.list(items);
 	}
 
 	@Value
@@ -63,7 +62,7 @@ public class Requirements
 
 		public List<Integer> getIds()
 		{
-			return ids == null ? Collections.emptyList() : ids;
+			return Safe.list(ids);
 		}
 	}
 }

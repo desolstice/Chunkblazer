@@ -36,10 +36,26 @@ public class GpsDataStatus
 	boolean directoryFound;
 	List<String> missingFiles;
 	List<String> invalidFiles;
+	String dataVersion;
+
+	public List<String> getMissingFiles()
+	{
+		return Safe.list(missingFiles);
+	}
+
+	public List<String> getInvalidFiles()
+	{
+		return Safe.list(invalidFiles);
+	}
 
 	public boolean isComplete()
 	{
-		return directoryFound && missingFiles.isEmpty() && invalidFiles.isEmpty();
+		return directoryFound && getMissingFiles().isEmpty() && getInvalidFiles().isEmpty();
+	}
+
+	private String versionSuffix()
+	{
+		return dataVersion == null ? "" : " (version " + dataVersion + ")";
 	}
 
 	public String describe()
@@ -50,8 +66,17 @@ public class GpsDataStatus
 		}
 		if (isComplete())
 		{
-			return "GPS data loaded.";
+			return "GPS data loaded" + versionSuffix() + ".";
 		}
-		return "GPS data partial. Missing: " + missingFiles + " Invalid: " + invalidFiles;
+		StringBuilder sb = new StringBuilder("GPS data loaded").append(versionSuffix()).append(".");
+		if (!getMissingFiles().isEmpty())
+		{
+			sb.append(" Missing: ").append(String.join(", ", getMissingFiles())).append(".");
+		}
+		if (!getInvalidFiles().isEmpty())
+		{
+			sb.append(" Invalid: ").append(String.join(", ", getInvalidFiles())).append(".");
+		}
+		return sb.toString();
 	}
 }

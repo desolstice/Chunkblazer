@@ -25,7 +25,6 @@
  */
 package com.chunkblazer.gps.data;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import lombok.Value;
@@ -44,16 +43,16 @@ public class MonsterDef
 
 	public List<Integer> getIds()
 	{
-		return ids == null ? Collections.emptyList() : ids;
+		return Safe.list(ids);
 	}
 
 	public List<String> getAttackStyles()
 	{
-		return attackStyles == null ? Collections.emptyList() : attackStyles;
+		return Safe.list(attackStyles);
 	}
 
 	public Map<String, Integer> getDefence()
 	{
-		return defence == null ? Collections.emptyMap() : defence;
+		return Safe.map(defence);
 	}
 }

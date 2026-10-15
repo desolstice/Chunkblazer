@@ -142,16 +142,16 @@ public final class ChunkGraph
 				return (int) Math.ceil(tiles * TravelConfig.WALK_TICKS_PER_TILE);
 			}
 			Map<Integer, Integer> dist = fromSource.get(ra);
+			if (dist == null)
+			{
+				Map<Integer, Integer> computed = dijkstra(ra);
+				dist = fromSource.putIfAbsent(ra, computed);
 				if (dist == null)
 				{
-					Map<Integer, Integer> computed = dijkstra(ra);
-					dist = fromSource.putIfAbsent(ra, computed);
-					if (dist == null)
-					{
-						dist = computed;
-					}
+					dist = computed;
 				}
-				Integer path = dist.get(rb);
+			}
+			Integer path = dist.get(rb);
 			if (path == null)
 			{
 				return TravelConfig.INF;

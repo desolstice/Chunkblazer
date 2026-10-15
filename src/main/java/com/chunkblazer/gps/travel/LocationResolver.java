@@ -50,8 +50,8 @@ public final class LocationResolver
 
 	private static final Comparator<LocationEntry> TIE = Comparator
 		.comparing(LocationEntry::getName, Comparator.nullsLast(Comparator.<String>naturalOrder()))
-		.thenComparingInt(LocationEntry::getX)
-		.thenComparingInt(LocationEntry::getY)
+		.thenComparing(LocationEntry::getX)
+		.thenComparing(LocationEntry::getY)
 		.thenComparingInt(LocationEntry::getPlane);
 
 	private final QuestCatalog quests;
@@ -69,7 +69,7 @@ public final class LocationResolver
 		}
 		for (LocationEntry e : data.getLocations())
 		{
-			if (e == null)
+			if (e == null || e.getX() == null || e.getY() == null)
 			{
 				continue;
 			}
@@ -193,6 +193,7 @@ public final class LocationResolver
 
 	public Optional<ResolvedLocation> nearestBank(Tile from)
 	{
+		// Plane is ignored when ranking banks (approximate model).
 		if (from == null || !from.isKnown())
 		{
 			return Optional.empty();
@@ -217,10 +218,11 @@ public final class LocationResolver
 		long bestD = 0;
 		for (LocationEntry e : entries)
 		{
-			if (e == null)
+			if (e == null || e.getX() == null || e.getY() == null)
 			{
 				continue;
 			}
+			// Plane is ignored when ranking: approximate model.
 			long d = Math.max(Math.abs((long) e.getX() - ref.getX()), Math.abs((long) e.getY() - ref.getY()));
 			if (best == null || d < bestD || (d == bestD && TIE.compare(e, best) < 0))
 			{

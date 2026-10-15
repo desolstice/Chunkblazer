@@ -34,8 +34,8 @@ public class LocationEntry
 	String name;
 	String kind;
 	List<Integer> ids;
-	int x;
-	int y;
+	Integer x;
+	Integer y;
 	int plane;
 
 	public List<Integer> getIds()

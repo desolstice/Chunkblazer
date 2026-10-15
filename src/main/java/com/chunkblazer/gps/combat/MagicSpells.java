@@ -47,7 +47,8 @@ public final class MagicSpells
 		{
 			for (int e = 0; e < elements.length; e++)
 			{
-				FIXED.put(elements[e] + " " + tiers[t], starts[t] + e);
+				int step = t == 0 ? 2 : 1; // strikes go 2, 4, 6, 8
+				FIXED.put(elements[e] + " " + tiers[t], starts[t] + e * step);
 			}
 		}
 

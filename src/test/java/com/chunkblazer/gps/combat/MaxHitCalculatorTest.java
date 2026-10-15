@@ -98,8 +98,7 @@ class MaxHitCalculatorTest
 		CombatStats s = CombatStats.builder().strength(99).style(null).build();
 		// eff=99+8+0=107 -> floor(0.5+10.7)=11
 		assertEquals(11, MaxHitCalculator.melee(s));
-		assertEquals(11, MaxHitCalculator.ranged(CombatStats.builder().ranged(99).style(null).build()) + 0 * 0
-			+ (MaxHitCalculator.ranged(CombatStats.builder().ranged(99).style(null).build()) == 11 ? 0 : 0));
+		assertEquals(11, MaxHitCalculator.ranged(CombatStats.builder().ranged(99).style(null).build()));
 	}
 
 	@Test
@@ -126,6 +125,38 @@ class MaxHitCalculatorTest
 		assertEquals(24, MaxHitCalculator.magic(s, "FIRE SURGE"));
 		assertEquals(24, MaxHitCalculator.magic(s, "fire surge"));
 		assertEquals(31, MaxHitCalculator.magic(s, "Trident Of The Swamp"));
+	}
+
+	@Test
+	void fixedSpellTable()
+	{
+		String[] elements = {"wind", "water", "earth", "fire"};
+		String[] tiers = {"strike", "bolt", "blast", "wave", "surge"};
+		int[][] expected = {{2, 4, 6, 8}, {9, 10, 11, 12}, {13, 14, 15, 16}, {17, 18, 19, 20}, {21, 22, 23, 24}};
+		for (int t = 0; t < tiers.length; t++)
+		{
+			for (int e = 0; e < elements.length; e++)
+			{
+				String name = elements[e] + " " + tiers[t];
+				assertEquals(expected[t][e], MagicSpells.baseMaxHit(name, 99), name);
+			}
+		}
+	}
+
+	@Test
+	void magicDamagePercentIsExactAtRoundingBoundaries()
+	{
+		// trident of the swamp at level 81: 27-2 = 25; 25 * 1.16 = 29 exactly
+		assertEquals(29, MaxHitCalculator.magic(CombatStats.builder().magic(81).magicDamagePercent(16).build(), "trident of the swamp"));
+		// level 141: 47-2 = 45; 45 * 1.40 = 63 exactly
+		assertEquals(63, MaxHitCalculator.magic(CombatStats.builder().magic(141).magicDamagePercent(40).build(), "trident of the swamp"));
+	}
+
+	@Test
+	void gearMultiplierIsExactAtRoundingBoundary()
+	{
+		// base 25 (99 str, +82 bonus); 25 * 1.16 = 29 exactly
+		assertEquals(29, MaxHitCalculator.melee(melee99().strengthBonus(82).gearMultiplier(1.16).build()));
 	}
 
 	@Test

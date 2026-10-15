@@ -64,7 +64,7 @@ public final class MaxHitCalculator
 	public static int magic(CombatStats s, String spell)
 	{
 		int base = MagicSpells.baseMaxHit(spell, s.getMagic());
-		return (int) Math.floor(base * (1 + s.getMagicDamagePercent() / 100.0) * s.getVoidMagicDamage());
+		return floor(base * (1 + s.getMagicDamagePercent() / 100.0) * s.getVoidMagicDamage());
 	}
 
 	public static int best(CombatStats s)
@@ -88,6 +88,12 @@ public final class MaxHitCalculator
 	private static int finish(int effectiveLevel, int bonus, double gearMultiplier)
 	{
 		int base = (int) Math.floor(0.5 + effectiveLevel * (bonus + 64) / 640.0);
-		return (int) Math.floor(base * gearMultiplier);
+		return floor(base * gearMultiplier);
+	}
+
+	/** Floor with a tiny epsilon so products like 25 * 1.16 (28.999999999999996) round as exact math would. */
+	private static int floor(double value)
+	{
+		return (int) Math.floor(value + 1e-9);
 	}
 }

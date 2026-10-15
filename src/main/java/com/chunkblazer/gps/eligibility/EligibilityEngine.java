@@ -54,6 +54,11 @@ public final class EligibilityEngine
 		this.data = Objects.requireNonNull(data, "data");
 	}
 
+	public QuestCatalog getQuests()
+	{
+		return quests;
+	}
+
 	public Eligibility evaluate(NuzlockeTask task, PlayerState state)
 	{
 		return Eligibility.of(deriver.derive(task).missing(state));

@@ -103,6 +103,7 @@ import com.chunkblazer.api.HcimDeathReport;
 import com.chunkblazer.api.PlayerLoginResponse;
 import com.chunkblazer.api.PlayerSyncRequest;
 import com.chunkblazer.api.ServerBackoff;
+import com.chunkblazer.gps.ui.GpsModule;
 import com.chunkblazer.modules.TaskModuleManager;
 
 @Slf4j
@@ -280,6 +281,7 @@ public class ChunkBlazerPlugin extends Plugin
 	@Getter
 	private ChunkBlazerPanel panel;
 	private NavigationButton navButton;
+	private GpsModule gpsModule;
 	private volatile int lastRegionId = -1;
 	private final Random random = new Random();
 
@@ -452,6 +454,39 @@ public class ChunkBlazerPlugin extends Plugin
 			}
 		}
 
+		// Progression GPS: its own nav button; loads its data off the client thread.
+		gpsModule = new GpsModule(client, clientThread, executorService, clientToolbar, config::gpsDataDir,
+			this::gpsTasks, this::gpsOpenRegionIds, icon);
+		gpsModule.start();
+	}
+
+	/** Distinct-by-taskId copy of every task (chunk tasks plus global tasks) for the GPS panel. */
+	private List<NuzlockeTask> gpsTasks()
+	{
+		Map<String, NuzlockeTask> byId = new LinkedHashMap<>();
+		for (NuzlockeChunk chunk : allChunks)
+		{
+			if (chunk.getTasks() != null)
+			{
+				chunk.getTasks().forEach(t -> byId.putIfAbsent(String.valueOf(t.getTaskId()), t));
+			}
+		}
+		globalTasks.forEach(t -> byId.putIfAbsent(String.valueOf(t.getTaskId()), t));
+		return new ArrayList<>(byId.values());
+	}
+
+	/** Unlocked regions plus every free region, so GPS treats free regions as open. */
+	private Set<String> gpsOpenRegionIds()
+	{
+		Set<String> open = getUnlockedRegionIds();
+		for (NuzlockeChunk chunk : allChunks)
+		{
+			if (chunk.getRegionIds() != null)
+			{
+				chunk.getRegionIds().stream().filter(this::isRegionUnlocked).forEach(r -> open.add(String.valueOf(r)));
+			}
+		}
+		return open;
 	}
 
 	@Override
@@ -461,6 +496,11 @@ public class ChunkBlazerPlugin extends Plugin
 		{
 			syncFuture.cancel(false);
 			syncFuture = null;
+		}
+		if (gpsModule != null)
+		{
+			gpsModule.stop();
+			gpsModule = null;
 		}
 		clientToolbar.removeNavigation(navButton);
 		setModeReady(false);

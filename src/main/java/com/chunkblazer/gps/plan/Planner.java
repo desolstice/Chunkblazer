@@ -95,7 +95,7 @@ public final class Planner
 				return new Plan(Collections.emptyList(), 0, unplannable, version);
 			}
 			resolveTiles(nodes, tiles, carried);
-			matrix = buildMatrix(nodes, tiles);
+			matrix = buildMatrix(req, nodes, tiles, Collections.emptySet(), null);
 			Set<Integer> blocked = unreachable(matrix, nodes.size());
 			if (blocked.isEmpty())
 			{
@@ -105,28 +105,20 @@ public final class Planner
 		}
 
 		int n = nodes.size();
-		Map<String, Integer> index = new HashMap<>();
-		for (int i = 0; i < n; i++)
+		Map<String, List<String>> predMap = new LinkedHashMap<>(graph.getPreds());
+		final CostMatrix base = matrix;
+		int[] order = Solver.solve(n, base::cost, intPreds(nodes, predMap), req.getSeed(), req.getDeadlineMillis());
+
+		if (req.isAllowTeleportAcquisition())
 		{
-			index.put(nodes.get(i).getId(), i + 1);
-		}
-		int[][] preds = new int[n + 1][];
-		preds[0] = new int[0];
-		for (int i = 0; i < n; i++)
-		{
-			List<Integer> ps = new ArrayList<>();
-			for (String id : graph.getPreds().getOrDefault(nodes.get(i).getId(), Collections.emptyList()))
-			{
-				Integer p = index.get(id);
-				if (p != null && p != i + 1)
-				{
-					ps.add(p);
-				}
-			}
-			preds[i + 1] = ps.stream().mapToInt(Integer::intValue).toArray();
+			TeleportAcquirer.AcquireResult r = new TeleportAcquirer(req, factory).apply(nodes, tiles, predMap, order);
+			nodes = r.getNodes();
+			tiles = r.getTiles();
+			predMap = r.getPreds();
+			order = r.getOrder();
+			matrix = r.getMatrix();
 		}
 		final CostMatrix m = matrix;
-		int[] order = Solver.solve(n, m::cost, preds, req.getSeed(), req.getDeadlineMillis());
 
 		// Defensive replay: every planned node's requirement must hold in the projected state.
 		List<Integer> planned = new ArrayList<>();
@@ -149,7 +141,7 @@ public final class Planner
 		{
 			plannedIds.add(nodes.get(idx - 1).getId());
 		}
-		Map<String, PlanNode> firstDependent = firstDependents(nodes, graph, plannedIds);
+		Map<String, PlanNode> firstDependent = firstDependents(nodes, predMap, plannedIds);
 		List<PlanStep> steps = new ArrayList<>();
 		long total = 0;
 		int prev = 0;
@@ -224,7 +216,12 @@ public final class Planner
 		return req.getStart();
 	}
 
-	private CostMatrix buildMatrix(List<PlanNode> nodes, Map<String, Tile> tiles)
+	/**
+	 * START plus the nodes (plus an optional extra tile, used by the acquirer for a candidate shop). Acquirable edges
+	 * are never assumed: only {@code acquired} ones are usable besides what the player already has.
+	 */
+	static CostMatrix buildMatrix(PlanRequest req, List<PlanNode> nodes, Map<String, Tile> tiles, Set<String> acquired,
+		Tile extra)
 	{
 		List<TravelNode> travel = new ArrayList<>();
 		travel.add(new TravelNode("START", req.getStart()));
@@ -232,8 +229,39 @@ public final class Planner
 		{
 			travel.add(new TravelNode(n.getId(), tiles.get(n.getId())));
 		}
-		TravelContext ctx = new TravelContext(req.getState(), Collections.emptySet(), req.isAllowTeleportAcquisition());
+		if (extra != null)
+		{
+			travel.add(new TravelNode("EXTRA", extra));
+		}
+		TravelContext ctx = new TravelContext(req.getState(), acquired, false);
 		return CostMatrix.build(travel, ctx, req.getGraph(), req.getTransport());
+	}
+
+	/** Precedence as 1-based node indices (index 0 unused); predecessors outside the node list are ignored. */
+	static int[][] intPreds(List<PlanNode> nodes, Map<String, List<String>> predMap)
+	{
+		int n = nodes.size();
+		Map<String, Integer> index = new HashMap<>();
+		for (int i = 0; i < n; i++)
+		{
+			index.put(nodes.get(i).getId(), i + 1);
+		}
+		int[][] preds = new int[n + 1][];
+		preds[0] = new int[0];
+		for (int i = 0; i < n; i++)
+		{
+			List<Integer> ps = new ArrayList<>();
+			for (String id : predMap.getOrDefault(nodes.get(i).getId(), Collections.emptyList()))
+			{
+				Integer p = index.get(id);
+				if (p != null && p != i + 1)
+				{
+					ps.add(p);
+				}
+			}
+			preds[i + 1] = ps.stream().mapToInt(Integer::intValue).toArray();
+		}
+		return preds;
 	}
 
 	/** 1-based node indices that no other point (start included) can reach. */
@@ -341,7 +369,7 @@ public final class Planner
 	// ---- output ----
 
 	/** For each planned node, the first planned node (in graph order) that lists it as a precedence predecessor. */
-	private static Map<String, PlanNode> firstDependents(List<PlanNode> nodes, PrecedenceGraph graph, Set<String> planned)
+	private static Map<String, PlanNode> firstDependents(List<PlanNode> nodes, Map<String, List<String>> predMap, Set<String> planned)
 	{
 		Map<String, PlanNode> out = new HashMap<>();
 		Map<String, PlanNode> byId = new HashMap<>();
@@ -352,7 +380,7 @@ public final class Planner
 			{
 				continue;
 			}
-			for (String p : graph.getPreds().getOrDefault(n.getId(), Collections.emptyList()))
+			for (String p : predMap.getOrDefault(n.getId(), Collections.emptyList()))
 			{
 				PlanNode pn = byId.get(p);
 				if (pn != null && pn.getQuestId() != null && pn.getQuestId().equals(n.getQuestId()))

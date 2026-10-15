@@ -99,6 +99,11 @@ final class PlanWorld
 		return TileMath.regionId(x, y);
 	}
 
+	PlanRequest requestWithAcquisition(boolean allow)
+	{
+		return request.toBuilder().allowTeleportAcquisition(allow).build();
+	}
+
 	PlanRequest request()
 	{
 		return request;
@@ -135,6 +140,9 @@ final class PlanWorld
 		private int nextNpcId = 9000;
 		private GoalMode goal = GoalMode.maxPoints();
 		private long deadlineMillis = 800;
+		private final List<String> edges = new ArrayList<>();
+		private final List<String> items = new ArrayList<>();
+		private boolean allowAcquisition;
 
 		Builder unlocked(int... regions)
 		{
@@ -142,6 +150,46 @@ final class PlanWorld
 			{
 				unlocked.add(r);
 			}
+			return this;
+		}
+
+		/** Unlocks every region along y between the two x tiles (inclusive), so walking is possible but long. */
+		Builder unlockedRange(int fromX, int toX, int y)
+		{
+			for (int x = fromX; x <= toX + 63; x += 64)
+			{
+				unlocked.add(TileMath.regionId(x, y));
+			}
+			return this;
+		}
+
+		/** A SPELL teleport usable from anywhere to (toX, 3200) that needs one of item {@code itemId}. */
+		Builder spellTeleport(String id, int itemId, int toX)
+		{
+			edges.add("{\"id\":\"" + id + "\",\"kind\":\"SPELL\",\"name\":\"" + id + "\",\"from\":null,\"to\":{\"x\":" + toX
+				+ ",\"y\":3200,\"plane\":0},\"ticks\":5,\"requires\":{\"skills\":{},\"quests\":[],\"items\":[{\"ids\":[" + itemId
+				+ "],\"qty\":1}]},\"consumesItem\":true}");
+			return this;
+		}
+
+		/** A shop at (x, 3200) selling the item. */
+		Builder shop(String name, int itemId, int x)
+		{
+			items.add("{\"id\":" + itemId + ",\"name\":\"Rune " + itemId + "\",\"sources\":[{\"type\":\"SHOP\",\"shop\":\"" + name
+				+ "\",\"price\":17}]}");
+			locations.add("{\"name\":\"" + name + "\",\"kind\":\"SHOP\",\"ids\":[],\"x\":" + x + ",\"y\":3200,\"plane\":0}");
+			return this;
+		}
+
+		Builder ownItem(int itemId, int qty)
+		{
+			state.item(itemId, qty);
+			return this;
+		}
+
+		Builder allowAcquisition(boolean allow)
+		{
+			this.allowAcquisition = allow;
 			return this;
 		}
 
@@ -254,7 +302,9 @@ final class PlanWorld
 				state.chunk(r);
 			}
 			PlayerState playerState = state.build();
-			GpsData data = GpsTestFixtures.dataWithAll(null, null,
+			GpsData data = GpsTestFixtures.dataWithAll(
+				edges.isEmpty() ? null : "{\"schema\":1,\"edges\":[" + String.join(",", edges) + "]}",
+				items.isEmpty() ? null : "{\"schema\":1,\"items\":[" + String.join(",", items) + "]}",
 				locations.isEmpty() ? null : "{\"schema\":1,\"entries\":[" + String.join(",", locations) + "]}",
 				quests.isEmpty() ? null : "{\"schema\":1,\"quests\":[" + String.join(",", quests) + "]}",
 				training.isEmpty() ? null : "{\"schema\":1,\"methods\":[" + String.join(",", training) + "]}");
@@ -284,6 +334,7 @@ final class PlanWorld
 				.graph(ChunkGraph.build(chunks))
 				.transport(new TransportModel(data, chunks, catalog))
 				.deadlineMillis(deadlineMillis)
+				.allowTeleportAcquisition(allowAcquisition)
 				.build();
 			NodeFactory factory = new NodeFactory(data, catalog, request.getDeriver(), new LocationResolver(data, catalog));
 			return new PlanWorld(request, factory);

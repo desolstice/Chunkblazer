@@ -64,6 +64,7 @@ class ChunkBlazerWorldMapOverlay extends Overlay
 	private static final Color LOCKED_BORDER = new Color(255, 0, 0, 120);
 	// The chunk you're standing in gets its own outline colour.
 	private static final Color CURRENT_BORDER = new Color(0, 200, 255, 255);
+	private static final Color PLAN_BORDER = new Color(255, 64, 200, 255);
 	// One outline colour for every chunk, so neighbouring edges never clash; the
 	// chunk's type is shown by its fill instead (see ChunkUnlockType).
 	private static final Color CHUNK_BORDER = new Color(255, 255, 255, 70);
@@ -295,6 +296,8 @@ class ChunkBlazerWorldMapOverlay extends Overlay
 		Font regionFont = FontManager.getRunescapeBoldFont().deriveFont(14f);
 		graphics.setFont(regionFont);
 		Rectangle currentChunkRect = null;
+		int planRegion = plugin.getPlanHighlight().regionId().orElse(-1);
+		Rectangle planRect = null;
 
 		for (int x = xRegionMin; x < xRegionMax; x += REGION_SIZE)
 		{
@@ -347,6 +350,10 @@ class ChunkBlazerWorldMapOverlay extends Overlay
 				{
 					currentChunkRect = new Rectangle(xPos, yPos, regionPixelSize, regionPixelSize);
 				}
+				if (regionId == planRegion)
+				{
+					planRect = new Rectangle(xPos, yPos, regionPixelSize, regionPixelSize);
+				}
 
 				// Hover emphasis on unlockable chunks (outline only, no fill).
 				if (type.isUnlockable() && regionId == hoveredRegionId)
@@ -393,6 +400,21 @@ class ChunkBlazerWorldMapOverlay extends Overlay
 			graphics.drawRect(currentChunkRect.x, currentChunkRect.y, currentChunkRect.width, currentChunkRect.height);
 			graphics.drawRect(currentChunkRect.x + 1, currentChunkRect.y + 1,
 				currentChunkRect.width - 2, currentChunkRect.height - 2);
+		}
+
+		// Progression GPS: the selected plan step's chunk, a thick outline with its label.
+		if (planRect != null)
+		{
+			Stroke oldStroke = graphics.getStroke();
+			graphics.setColor(PLAN_BORDER);
+			graphics.setStroke(new BasicStroke(3f));
+			graphics.drawRect(planRect.x, planRect.y, planRect.width, planRect.height);
+			graphics.setStroke(oldStroke);
+			String planLabel = plugin.getPlanHighlight().label();
+			if (planLabel != null && planRect.width >= MIN_LABEL_CHUNK_PIXELS)
+			{
+				graphics.drawString(planLabel, planRect.x + 5, planRect.y + 16);
+			}
 		}
 
 		// Hovering an unlockable neighbour: show the keybind+click tooltip. The

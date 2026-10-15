@@ -1,6 +1,6 @@
 # Progression GPS: Design Spec
 
-Date: 2026-10-14 | Branch: feature/progression-gps | Status: updated with user decisions 2026-10-14
+Date: 2026-10-14 | Branch: feature/progression-gps | Status: implemented through M5
 
 ## 1. Goal
 Given the chunks a player can access and their current (or simulated) skills and gear, produce an ordered multi-step plan that progresses the account as fast as possible, where "fast" means minimal total travel time. The plan covers gear and upgrades, skill training, quests, and ChunkBlazer tasks (including one-hit/kill tasks judged by max hit vs NPC HP). Each step carries a reason or its missing requirements.

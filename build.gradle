@@ -85,3 +85,18 @@ tasks.withType(Checkstyle).configureEach {
 		html.required = true
 	}
 }
+
+// Dev only: launches a RuneLite client with ChunkBlazer loaded (test classpath carries the client).
+// Not part of the Plugin Hub build:  ./gradlew runDevClient   (add -PdevDebug for --debug)
+tasks.register('runDevClient', JavaExec) {
+	group = 'application'
+	description = 'Runs a RuneLite dev client with ChunkBlazer loaded'
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = 'com.chunkblazer.ChunkBlazerDevLauncher'
+	args = ['--developer-mode']
+	if (project.hasProperty('devDebug'))
+	{
+		args += '--debug'
+	}
+	jvmArgs = ['-ea']
+}

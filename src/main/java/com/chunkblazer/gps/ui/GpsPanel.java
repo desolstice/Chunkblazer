@@ -26,6 +26,7 @@
 package com.chunkblazer.gps.ui;
 
 import com.chunkblazer.gps.data.GpsData;
+import com.chunkblazer.gps.data.GpsDataStatus;
 import com.chunkblazer.gps.eligibility.Eligibility;
 import com.chunkblazer.gps.model.Missing;
 import com.chunkblazer.gps.model.PlayerState;
@@ -107,6 +108,14 @@ public class GpsPanel extends PluginPanel
 		tabs.addTab("Simulate", simulatePanel);
 		tabs.addChangeListener(e -> syncPlanTab());
 		add(tabs, BorderLayout.CENTER);
+		GpsDataStatus dataStatus = data == null ? null : data.getStatus();
+		String help = GpsHelpText.forStatus(dataStatus, dataStatus == null ? null : dataStatus.getDir());
+		if (!help.isEmpty())
+		{
+			JLabel banner = wrapped(help, UNKNOWN);
+			banner.setBorder(BorderFactory.createEmptyBorder(0, 0, 6, 0));
+			add(banner, BorderLayout.NORTH);
+		}
 
 		JPanel top = new JPanel();
 		top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));

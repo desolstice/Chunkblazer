@@ -25,6 +25,8 @@
  */
 package com.chunkblazer.gps.adapter;
 
+import com.chunkblazer.gps.combat.CombatStats;
+import com.chunkblazer.gps.combat.MaxHitCalculator;
 import com.chunkblazer.gps.model.PlayerState;
 import com.chunkblazer.gps.model.XpTable;
 import java.util.HashMap;
@@ -53,6 +55,7 @@ public final class SimulatedState
 	private final Set<String> unlocks = new HashSet<>();
 	private int questPoints;
 	private int maxHit;
+	private boolean explicitMaxHit;
 
 	private SimulatedState()
 	{
@@ -77,7 +80,6 @@ public final class SimulatedState
 		s.items.putAll(real.getItems());
 		s.unlocks.addAll(real.getUnlocks());
 		s.questPoints = real.getQuestPoints();
-		s.maxHit = real.getMaxHit();
 		return s;
 	}
 
@@ -124,6 +126,7 @@ public final class SimulatedState
 	public void setMaxHit(int maxHit)
 	{
 		this.maxHit = Math.max(0, maxHit);
+		this.explicitMaxHit = true;
 	}
 
 	public void setQuestPoints(int questPoints)
@@ -140,6 +143,19 @@ public final class SimulatedState
 		chunks.forEach(b::chunk);
 		items.forEach(b::item);
 		unlocks.forEach(b::unlock);
-		return b.questPoints(questPoints).maxHit(maxHit).build();
+		return b.questPoints(questPoints).maxHit(explicitMaxHit ? maxHit : derivedMaxHit()).build();
+	}
+
+	/** Level-only lower bound (no gear), recomputed from the simulated levels like the real provider does. */
+	private int derivedMaxHit()
+	{
+		int magic = levels.getOrDefault("MAGIC", 1);
+		CombatStats stats = CombatStats.builder()
+			.strength(levels.getOrDefault("STRENGTH", 1))
+			.ranged(levels.getOrDefault("RANGED", 1))
+			.magic(magic)
+			.style(CombatStats.Style.AGGRESSIVE)
+			.build();
+		return MaxHitCalculator.best(stats, PlayerStateProvider.availableSpells(magic));
 	}
 }

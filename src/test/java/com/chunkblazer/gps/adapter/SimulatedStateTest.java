@@ -103,7 +103,7 @@ class SimulatedStateTest
 		assertTrue(p.hasQuest("Q"));
 		assertTrue(p.hasUnlockedChunk(7));
 		assertEquals(4, p.ownedCount(9));
-		assertEquals(11, p.getMaxHit());
+		// maxHit is recomputed from the simulated levels, not carried over (see fromRealDoesNotFreezeMaxHit).
 		assertEquals(12, p.getQuestPoints());
 		assertTrue(p.hasUnlock("TOKEN"));
 	}
@@ -127,5 +127,33 @@ class SimulatedStateTest
 		s.setLevel("MINING", 60);
 		assertEquals(60, s.build().getLevel("MINING"));
 		assertEquals(com.chunkblazer.gps.model.XpTable.xpForLevel(60), s.build().getXp("MINING"));
+	}
+
+	@Test
+	void raisingStrengthRaisesMaxHit()
+	{
+		SimulatedState s = SimulatedState.fresh();
+		int before = s.build().getMaxHit();
+		assertTrue(before > 0, "fresh lower bound is not 0: " + before);
+		s.setLevel("STRENGTH", 99);
+		assertTrue(s.build().getMaxHit() > before);
+	}
+
+	@Test
+	void explicitMaxHitOverrides()
+	{
+		SimulatedState s = SimulatedState.fresh();
+		s.setMaxHit(50);
+		s.setLevel("STRENGTH", 99);
+		assertEquals(50, s.build().getMaxHit());
+	}
+
+	@Test
+	void fromRealDoesNotFreezeMaxHit()
+	{
+		PlayerState real = PlayerState.builder().maxHit(1).build();
+		SimulatedState s = SimulatedState.fromReal(real);
+		s.setLevel("STRENGTH", 99);
+		assertTrue(s.build().getMaxHit() > 1);
 	}
 }

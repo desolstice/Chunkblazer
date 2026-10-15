@@ -455,9 +455,17 @@ public class ChunkBlazerPlugin extends Plugin
 		}
 
 		// Progression GPS: its own nav button; loads its data off the client thread.
-		gpsModule = new GpsModule(client, clientThread, executorService, clientToolbar, config::gpsDataDir,
-			this::gpsTasks, this::gpsOpenRegionIds, icon);
-		gpsModule.start();
+		try
+		{
+			gpsModule = new GpsModule(client, clientThread, executorService, clientToolbar, config::gpsDataDir,
+				this::gpsTasks, this::gpsOpenRegionIds, icon);
+			gpsModule.start();
+		}
+		catch (Exception | LinkageError ex)
+		{
+			log.warn("Progression GPS disabled", ex);
+			gpsModule = null;
+		}
 	}
 
 	/** Distinct-by-taskId copy of every task (chunk tasks plus global tasks) for the GPS panel. */

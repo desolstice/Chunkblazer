@@ -29,6 +29,7 @@ import com.chunkblazer.NuzlockeTask;
 import com.chunkblazer.gps.adapter.PlayerStateProvider;
 import com.chunkblazer.gps.data.GpsData;
 import com.chunkblazer.gps.data.GpsDataLocator;
+import com.chunkblazer.gps.data.GpsDataStore;
 import com.chunkblazer.gps.eligibility.EligibilityEngine;
 import com.chunkblazer.gps.eligibility.Overrides;
 import com.chunkblazer.gps.eligibility.RequirementDeriver;
@@ -46,6 +47,7 @@ import java.util.function.Supplier;
 import javax.swing.SwingUtilities;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
+import net.runelite.api.GameState;
 import net.runelite.api.Quest;
 import net.runelite.api.QuestState;
 import net.runelite.client.callback.ClientThread;
@@ -67,6 +69,7 @@ public final class GpsModule
 
 	private volatile boolean stopped;
 	private NavigationButton button;
+	private volatile GpsPanel panel;
 
 	public GpsModule(Client client, ClientThread clientThread, ScheduledExecutorService executor,
 		ClientToolbar clientToolbar, Supplier<String> dataDirConfig, Supplier<List<NuzlockeTask>> taskSupplier,
@@ -90,15 +93,16 @@ public final class GpsModule
 		{
 			try
 			{
-				GpsData data = GpsDataLocator.load(dataDirConfig.get());
+				java.nio.file.Path dir = GpsDataLocator.resolveDir(dataDirConfig.get());
+				GpsData data = GpsDataStore.load(dir);
 				QuestCatalog quests = QuestCatalog.build(data, QuestHelperEntry.loadFromResource());
 				EligibilityEngine engine = new EligibilityEngine(
-					new RequirementDeriver(quests, Overrides.empty(), data), quests, data);
+					new RequirementDeriver(quests, Overrides.load(dir), data), quests, data);
 				PlayerStateProvider provider = new PlayerStateProvider(client, openRegionIds, this::questFinished,
 					Collections::emptyMap);
 				SwingUtilities.invokeLater(() -> createPanel(data, engine, provider));
 			}
-			catch (Exception ex)
+			catch (Throwable ex)
 			{
 				log.warn("Progression GPS failed to start", ex);
 			}
@@ -131,14 +135,21 @@ public final class GpsModule
 			try
 			{
 				// Client thread: snapshot runs client scripts; the task list is copied here (not reloaded).
-				callback.accept(provider.snapshot(), new GpsPanelModel(engine, taskSupplier.get()));
+				boolean loggedIn = client.getGameState() == GameState.LOGGED_IN;
+				PlayerState state = loggedIn ? provider.snapshot() : PlayerState.freshAccount();
+				callback.accept(state, new GpsPanelModel(engine, taskSupplier.get()));
+				GpsPanel p = panel;
+				if (p != null)
+				{
+					SwingUtilities.invokeLater(() -> p.setLoggedIn(loggedIn));
+				}
 			}
 			catch (RuntimeException ex)
 			{
 				log.warn("GPS snapshot failed", ex);
 			}
 		});
-		GpsPanel panel = new GpsPanel(model, data, requester);
+		panel = new GpsPanel(model, data, requester);
 		button = NavigationButton.builder().tooltip("GPS").icon(icon).priority(9).panel(panel).build();
 		clientToolbar.addNavigation(button);
 	}
@@ -152,6 +163,7 @@ public final class GpsModule
 			{
 				clientToolbar.removeNavigation(button);
 				button = null;
+				panel = null;
 			}
 		});
 	}

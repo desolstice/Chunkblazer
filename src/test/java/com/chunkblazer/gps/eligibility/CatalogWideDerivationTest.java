@@ -32,6 +32,7 @@ import com.chunkblazer.NuzlockeTask;
 import com.chunkblazer.gps.data.GpsData;
 import com.chunkblazer.gps.model.QuestCatalog;
 import com.chunkblazer.gps.model.QuestHelperEntry;
+import com.chunkblazer.gps.model.QuestModel;
 import com.chunkblazer.gps.model.Requirement;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -46,9 +47,7 @@ class CatalogWideDerivationTest
 	// Only types that legitimately need nothing derivable may appear here. Update this set deliberately.
 	private static final Set<String> EXPECTED_NONE_TYPES = new HashSet<>(Arrays.asList(
 		"EQUIP", "OBTAIN", "NPC_KILL", "AGILITY", "FARMING", "FISHING", "MINING", "WOODCUTTING", "COOKING", "FLETCHING",
-		"CRAFTING", "THIEVING", "CONSTRUCTION", "SMITHING", "SLAYER", "FIREMAKING", "HERBLORE", "HUNTER", "RUNECRAFTING", "PRAYER",
-		// QUEST_CHECK on starter quests with no skill/quest prerequisites (Cook's Assistant, Sheep Shearer, ...) needs nothing.
-		"QUEST_CHECK"));
+		"CRAFTING", "THIEVING", "CONSTRUCTION", "SMITHING", "SLAYER", "FIREMAKING", "HERBLORE", "HUNTER", "RUNECRAFTING", "PRAYER"));
 
 	private static RequirementDeriver deriver()
 	{
@@ -88,16 +87,33 @@ class CatalogWideDerivationTest
 	void everyTaskIsEitherRequirementBearingNoneOrExplicitlyUnknown()
 	{
 		// the "NONE" bucket must be a conscious set: list its completion types so a new unmodelled type is noticed.
-		RequirementDeriver d = deriver();
+		GpsData data = GpsData.empty(null);
+		QuestCatalog catalog = QuestCatalog.build(data, QuestHelperEntry.loadFromResource());
+		RequirementDeriver d = new RequirementDeriver(catalog, Overrides.empty(), data);
 		Set<String> noneTypes = new TreeSet<>();
 		for (NuzlockeTask t : CatalogTestSupport.loadCatalogTasks())
 		{
+			boolean questCheck = "QUEST_CHECK".equalsIgnoreCase(t.getCompletionType());
+			if (questCheck)
+			{
+				// A malformed quest task must not hide in the none bucket.
+				assertNotNull(t.getConstraints(), t.getTaskId());
+				assertNotNull(t.getConstraints().getQuest(), t.getTaskId());
+			}
+			if (questCheck && isNone(d.derive(t)))
+			{
+				String id = t.getConstraints().getQuest();
+				QuestModel q = catalog.get(id).orElse(null);
+				assertNotNull(q, "requirement-free QUEST_CHECK refers to unknown quest: " + id);
+				assertTrue(isNone(q.getRequirement()), "quest " + id + " has its own requirement");
+				assertTrue(catalog.prerequisitesClosure(id).isEmpty(), "quest " + id + " has prerequisites");
+				continue;
+			}
 			if (isNone(d.derive(t)) && t.getCompletionType() != null)
 			{
 				noneTypes.add(t.getCompletionType().toUpperCase(Locale.ROOT));
 			}
 		}
-		System.out.println("NONE_TYPES=" + noneTypes);
 		assertTrue(EXPECTED_NONE_TYPES.containsAll(noneTypes), "Unexpected requirement-free types: " + noneTypes);
 	}
 

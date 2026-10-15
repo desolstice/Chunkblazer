@@ -84,6 +84,7 @@ public class GpsPanel extends PluginPanel
 	private final JCheckBox questsBox = new JCheckBox("Quests", false);
 	private final JTextField search = new JTextField();
 	private final JLabel summaryLabel = new JLabel(" ");
+	private final JLabel loginHint = new JLabel("Log in to read your real skills");
 	private final JPanel levelEditor = new JPanel(new GridLayout(0, 2, 4, 2));
 	private final JPanel list = new JPanel();
 	private final Timer coalesce;
@@ -145,6 +146,9 @@ public class GpsPanel extends PluginPanel
 			}
 		});
 		top.add(search);
+		loginHint.setForeground(UNKNOWN);
+		loginHint.setVisible(false);
+		top.add(loginHint);
 		top.add(summaryLabel);
 
 		levelEditor.setVisible(false);
@@ -311,5 +315,11 @@ public class GpsPanel extends PluginPanel
 		JLabel l = new JLabel("<html><div style='width:190px'>" + esc + "</div></html>");
 		l.setForeground(color);
 		return l;
+	}
+
+	/** Shows a hint while real mode has no logged-in character to read. EDT only. */
+	public void setLoggedIn(boolean loggedIn)
+	{
+		loginHint.setVisible(!loggedIn);
 	}
 }
